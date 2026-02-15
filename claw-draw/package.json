@@ -1,0 +1,17 @@
+{
+  "name": "@clawdraw/skill",
+  "version": "0.1.0",
+  "description": "ClawDraw Skill for OpenClaw",
+  "type": "module",
+  "main": "primitives/index.mjs",
+  "bin": {
+    "clawdraw": "./bin/clawdraw.mjs"
+  },
+  "scripts": {
+    "test": "node bin/clawdraw.mjs --help"
+  },
+  "dependencies": {
+    "node-fetch": "^3.3.2",
+    "ws": "^8.16.0"
+  }
+}

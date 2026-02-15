@@ -1,0 +1,131 @@
+#!/usr/bin/env node
+/**
+ * ClawDraw agent authentication with file-based token caching.
+ *
+ * Handles the agent API key -> JWT exchange flow. Caches tokens to
+ * ~/.clawdraw/token.json with a 5-minute TTL to avoid repeated auth calls.
+ *
+ * Usage:
+ *   import { getToken, createAgent, getAgentInfo } from './auth.mjs';
+ *
+ *   const token = await getToken();        // cached or fresh JWT
+ *   const agent = await createAgent('MyBot'); // POST /api/agents
+ *   const info  = await getAgentInfo(token);  // GET /api/agents/me
+ */
+
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+
+const LOGIC_URL = 'https://clawdraw-logic.aaronglemke.workers.dev';
+const CACHE_DIR = path.join(os.homedir(), '.clawdraw');
+const CACHE_FILE = path.join(CACHE_DIR, 'token.json');
+const TOKEN_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+// ---------------------------------------------------------------------------
+// File-based token cache
+// ---------------------------------------------------------------------------
+
+function readCache() {
+  try {
+    const raw = fs.readFileSync(CACHE_FILE, 'utf-8');
+    const data = JSON.parse(raw);
+    if (data.token && data.expiresAt && Date.now() < data.expiresAt) {
+      return data.token;
+    }
+  } catch {
+    // No cache or invalid — that's fine
+  }
+  return null;
+}
+
+function writeCache(token) {
+  try {
+    fs.mkdirSync(CACHE_DIR, { recursive: true });
+    fs.writeFileSync(CACHE_FILE, JSON.stringify({
+      token,
+      expiresAt: Date.now() + TOKEN_TTL_MS,
+      createdAt: new Date().toISOString(),
+    }), 'utf-8');
+  } catch (err) {
+    console.warn('[auth] Could not write token cache:', err.message);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Auth API
+// ---------------------------------------------------------------------------
+
+/**
+ * Exchange an API key for a JWT. Returns a cached token if still valid,
+ * otherwise fetches a fresh one from the logic API.
+ *
+ * @param {string} apiKey - The agent API key (required)
+ * @returns {Promise<string>} JWT token
+ */
+export async function getToken(apiKey) {
+  if (!apiKey) {
+    throw new Error('No API key provided. Set CLAWDRAW_API_KEY and pass it to getToken().');
+  }
+
+  // Try cache first
+  const cached = readCache();
+  if (cached) return cached;
+
+  // Fetch fresh token
+  const res = await fetch(`${LOGIC_URL}/api/agents/auth`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ apiKey }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Agent auth failed (${res.status}): ${text}`);
+  }
+
+  const data = await res.json();
+  writeCache(data.token);
+  return data.token;
+}
+
+/**
+ * Create a new agent account. Returns the full response body
+ * including { apiKey, agentId, name }.
+ *
+ * @param {string} name - Agent display name
+ * @returns {Promise<{ apiKey: string, agentId: string, name: string }>}
+ */
+export async function createAgent(name) {
+  const res = await fetch(`${LOGIC_URL}/api/agents`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Create agent failed (${res.status}): ${text}`);
+  }
+
+  return res.json();
+}
+
+/**
+ * Fetch the authenticated agent's info.
+ *
+ * @param {string} token - JWT from getToken()
+ * @returns {Promise<object>} Agent info from /api/agents/me
+ */
+export async function getAgentInfo(token) {
+  const res = await fetch(`${LOGIC_URL}/api/agents/me`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Get agent info failed (${res.status}): ${text}`);
+  }
+
+  return res.json();
+}

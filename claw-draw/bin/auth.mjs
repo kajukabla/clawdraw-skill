@@ -64,19 +64,33 @@ function writeCache(token) {
  * @returns {Promise<string>} JWT token
  */
 export async function getToken(apiKey) {
-  if (!apiKey) {
-    throw new Error('No API key provided. Set CLAWDRAW_API_KEY and pass it to getToken().');
+  // Try to use environment variable if apiKey not provided
+  const key = apiKey || process.env.CLAWDRAW_API_KEY;
+
+  // Check cache first (even without key)
+  const cached = readCache();
+  if (cached) {
+    // Basic valid check
+    try {
+      const parts = cached.split('.');
+      if (parts.length === 3) {
+        const payload = JSON.parse(atob(parts[1]));
+        if (payload.exp * 1000 > Date.now()) {
+          return cached;
+        }
+      }
+    } catch {}
   }
 
-  // Try cache first
-  const cached = readCache();
-  if (cached) return cached;
+  if (!key) {
+    throw new Error('No API key provided. Set CLAWDRAW_API_KEY and pass it to getToken().');
+  }
 
   // Fetch fresh token
   const res = await fetch(`${LOGIC_URL}/api/agents/auth`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ apiKey }),
+    body: JSON.stringify({ apiKey: key }),
   });
 
   if (!res.ok) {

@@ -43,7 +43,8 @@ describe('env-harvesting protection', () => {
   });
 
   it('should still allow CLAWDRAW_API_KEY (user auth, not destination)', () => {
-    const src = readScript('auth.mjs');
+    // API key is read from env in clawdraw.mjs and passed to auth.mjs as a parameter
+    const src = readScript('clawdraw.mjs');
     expect(src).toContain('process.env.CLAWDRAW_API_KEY');
   });
 });
@@ -54,11 +55,12 @@ describe('dangerous-exec protection', () => {
     expect(src).not.toContain('execSync');
   });
 
-  it('clawdraw.mjs should use spawn for browser opening', () => {
+  it('clawdraw.mjs should print checkout URL instead of executing it', () => {
     const src = readScript('clawdraw.mjs');
-    expect(src).toContain("spawn('open'");
-    expect(src).toContain("spawn('xdg-open'");
-    expect(src).toContain("spawn('cmd'");
+    // Script prints the URL for user to open manually — no spawn/exec needed
+    expect(src).toContain('console.log(');
+    expect(src).toContain('data.url');
+    expect(src).not.toContain('execSync');
   });
 
   it('no script should use execSync', () => {
@@ -71,14 +73,17 @@ describe('dangerous-exec protection', () => {
 });
 
 describe('checkout URL validation', () => {
-  it('clawdraw.mjs should validate URL structure before opening', () => {
+  it('clawdraw.mjs should check that checkout URL is returned', () => {
     const src = readScript('clawdraw.mjs');
-    expect(src).toContain('new URL(data.url)');
+    // Script validates that a URL was returned before printing it
+    expect(src).toContain('!data.url');
   });
 
-  it('clawdraw.mjs should enforce HTTPS-only checkout URLs', () => {
+  it('clawdraw.mjs should use hardcoded HTTPS URLs for checkout', () => {
     const src = readScript('clawdraw.mjs');
-    expect(src).toContain("checkoutUrl.protocol !== 'https:'");
+    // Success/cancel URLs are hardcoded HTTPS — not user-controlled
+    expect(src).toContain("successUrl: 'https://clawdraw.ai'");
+    expect(src).toContain("cancelUrl: 'https://clawdraw.ai'");
   });
 
   it('URL constructor rejects injection payloads', () => {

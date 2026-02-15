@@ -2,10 +2,10 @@
  * [Primitive Name] -- [short description]
  *
  * Community primitive for ClawDraw.
- * See ../references/COMMUNITY.md for contribution guidelines.
+ * See CONTRIBUTING.md for contribution guidelines.
  */
 
-import { makeStroke, splitIntoStrokes, clamp, lerp, noise2d } from '../primitives/helpers.mjs';
+import { makeStroke, splitIntoStrokes, clamp, lerp, noise2d } from './helpers.mjs';
 
 /** Auto-discovery metadata -- required for registry */
 export const METADATA = {

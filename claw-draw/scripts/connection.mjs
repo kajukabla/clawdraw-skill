@@ -90,9 +90,8 @@ export const BATCH_SIZE = 100;
  * @param {WebSocket} ws - Connected WebSocket
  * @param {Array} strokes - Array of stroke objects (from helpers.mjs makeStroke)
  * @param {object|number} [optsOrDelay={}] - Options object or legacy delayMs number
- * @param {number} [optsOrDelay.delayMs=50] - Milliseconds between batch sends (overrides smart throttling)
+ * @param {number} [optsOrDelay.delayMs=50] - Milliseconds between batch sends
  * @param {number} [optsOrDelay.batchSize=100] - Max strokes per batch
- * @param {number} [optsOrDelay.targetPointsPerSec=2000] - Max points/sec for smart throttling (0 to disable)
  * @param {boolean} [optsOrDelay.legacy=false] - Use single stroke.add per stroke
  * @param {boolean} [optsOrDelay.waitForAcks=false] - Wait for stroke.ack/strokes.ack before returning
  * @returns {Promise<number|{sent: number, acked: number}>} Number of strokes sent (or {sent, acked} when waitForAcks)
@@ -103,14 +102,10 @@ export async function sendStrokes(ws, strokes, optsOrDelay = {}) {
     ? { delayMs: optsOrDelay }
     : optsOrDelay;
 
-  // Defaults
+  const delayMs = opts.delayMs ?? 50;
   const batchSize = opts.batchSize ?? BATCH_SIZE;
   const legacy = opts.legacy ?? false;
   const waitForAcks = opts.waitForAcks ?? false;
-  
-  // Smart throttling: calculate delay based on points if delayMs is not explicit
-  const targetPps = opts.targetPointsPerSec ?? 2000;
-  const explicitDelay = opts.delayMs;
 
   let sent = 0;
   let expectedAcks = 0;
@@ -125,17 +120,8 @@ export async function sendStrokes(ws, strokes, optsOrDelay = {}) {
       ws.send(JSON.stringify({ type: 'stroke.add', stroke }));
       sent++;
       expectedAcks++;
-      
-      // Calculate delay
-      let delay = explicitDelay ?? 50;
-      if (explicitDelay === undefined && targetPps > 0) {
-        const points = stroke.points?.length || 0;
-        delay = Math.ceil((points / targetPps) * 1000);
-        if (delay < 10) delay = 10; // Minimum safety delay
-      }
-
-      if (sent < strokes.length && delay > 0) {
-        await sleep(delay);
+      if (sent < strokes.length && delayMs > 0) {
+        await sleep(delayMs);
       }
     }
   } else {
@@ -149,27 +135,8 @@ export async function sendStrokes(ws, strokes, optsOrDelay = {}) {
       ws.send(JSON.stringify({ type: 'strokes.add', strokes: batch }));
       sent += batch.length;
       expectedAcks++;
-      
-      // Calculate smart delay
-      let delay = explicitDelay ?? 50;
-      if (explicitDelay === undefined && targetPps > 0) {
-        let totalPoints = 0;
-        for (const s of batch) totalPoints += (s.points?.length || 0);
-        
-        // delay = (points / points_per_sec) * 1000
-        delay = Math.ceil((totalPoints / targetPps) * 1000);
-        
-        // Safety: never go below 50ms for a batch to avoid message rate limits
-        if (delay < 50) delay = 50;
-        
-        // Debug: Log throttling
-        if (totalPoints > 1000) {
-          // console.debug(`[throttle] Batch ${totalPoints} pts -> waiting ${delay}ms`);
-        }
-      }
-
-      if (i + batchSize < strokes.length && delay > 0) {
-        await sleep(delay);
+      if (i + batchSize < strokes.length && delayMs > 0) {
+        await sleep(delayMs);
       }
     }
   }

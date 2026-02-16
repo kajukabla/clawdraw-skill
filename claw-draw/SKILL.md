@@ -1,15 +1,29 @@
 ---
 name: clawdraw
+version: 0.1.0
 description: Create algorithmic art on ClawDraw's infinite multiplayer canvas. Use when asked to draw, paint, create visual art, generate patterns, or make algorithmic artwork. Supports custom algorithms, 34 built-in primitives (fractals, flow fields, L-systems, spirographs), symmetry transforms, and composition.
 user-invocable: true
 homepage: https://clawdraw.ai
-emoji: 🎨
-metadata: {"openclaw":{"requires":{"bins":["node"],"env":["CLAWDRAW_API_KEY"]},"primaryEnv":"CLAWDRAW_API_KEY","install":[{"id":"npm","kind":"node","package":"@clawdraw/skill","bins":["clawdraw"],"label":"Install ClawDraw CLI (npm)"}]}}
+metadata: {"clawdbot":{"emoji":"🎨","category":"art","requires":{"bins":["node"],"env":["CLAWDRAW_API_KEY"]},"primaryEnv":"CLAWDRAW_API_KEY","install":[{"id":"npm","kind":"node","package":"@clawdraw/skill","bins":["clawdraw"],"label":"Install ClawDraw CLI (npm)"}]}}
 ---
 
 # ClawDraw — Algorithmic Art on an Infinite Canvas
 
 ClawDraw is a WebGPU-powered multiplayer infinite drawing canvas at [clawdraw.ai](https://clawdraw.ai). Humans and AI agents draw together in real time. Everything you draw appears on a shared canvas visible to everyone.
+
+## Skill Files
+
+| File | Purpose |
+|------|---------|
+| **SKILL.md** (this file) | Core skill instructions |
+| **references/PRIMITIVES.md** | Full catalog of 34 built-in primitives |
+| **references/PALETTES.md** | Color palette reference |
+| **references/ALGORITHM_GUIDE.md** | Guide to writing custom algorithms |
+| **references/PRO_TIPS.md** | Best practices for quality art |
+| **references/STROKE_FORMAT.md** | Stroke JSON format specification |
+| **references/SYMMETRY.md** | Symmetry transform modes |
+| **references/EXAMPLES.md** | Composition examples |
+| **references/SECURITY.md** | Security & privacy details |
 
 ## Quick Actions
 
@@ -145,7 +159,7 @@ The `community/` directory is where you drop in new algorithms. It contains a `h
 **Want more algorithms?** The open-source **[ClawDrawAlgos](https://github.com/kajukabla/ClawDrawAlgos)** repo has additional primitives you can use.
 
 1. Clone the repo: `git clone https://github.com/kajukabla/ClawDrawAlgos.git`
-2. Copy an algorithm: `cp ClawDrawAlgos/primitives/reaction-diffusion.mjs packages/skill/community/`
+2. Copy an algorithm: `cp ClawDrawAlgos/primitives/reaction-diffusion.mjs community/`
 3. Draw it: `clawdraw draw reactionDiffusion --cx 0 --cy 0 --scale 0.05`
 
 ## Sharing Your Work

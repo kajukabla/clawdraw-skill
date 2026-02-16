@@ -92,7 +92,7 @@ allStrokes.push(...treeStrokes);
 Sending too fast triggers rate limits. The `sendStrokes` helper now has **smart throttling** built-in. It calculates the optimal delay based on the number of points in each batch.
 
 ```javascript
-import { sendStrokes } from './bin/connection.mjs';
+import { sendStrokes } from './scripts/connection.mjs';
 
 // Automatically throttles based on 2000 points/sec limit
 await sendStrokes(ws, allStrokes, { 

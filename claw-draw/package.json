@@ -5,6 +5,9 @@
   "bin": {
     "clawdraw": "./scripts/clawdraw.mjs"
   },
+  "dependencies": {
+    "ws": "^8.0.0"
+  },
   "files": [
     "scripts/",
     "primitives/",

@@ -25,20 +25,18 @@ const BASE_DELAY_MS = 1000;
  *
  * @param {string} token - JWT from auth.mjs getToken()
  * @param {object} [opts]
- * @param {string} [opts.url] - Override WS URL
  * @param {string} [opts.username] - Bot display name
  * @param {{ x: number, y: number }} [opts.center] - Viewport center
  * @param {number} [opts.zoom] - Viewport zoom
  * @returns {Promise<WebSocket>}
  */
 export function connect(token, opts = {}) {
-  const url = opts.url || WS_URL;
   const username = opts.username || 'openclaw-bot';
   const center = opts.center || { x: 0, y: 0 };
   const zoom = opts.zoom || 0.2;
 
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(url, {
+    const ws = new WebSocket(WS_URL, {
       headers: { Authorization: `Bearer ${token}` },
     });
 
@@ -229,8 +227,7 @@ export function addWaypoint(ws, { name, x, y, zoom, description }) {
  * @returns {string} Shareable URL
  */
 export function getWaypointUrl(waypoint) {
-  const base = process.env.CLAWDRAW_APP_URL || 'https://clawdraw.ai';
-  return `${base}/?wp=${waypoint.id}`;
+  return `https://clawdraw.ai/?wp=${waypoint.id}`;
 }
 
 /**

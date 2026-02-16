@@ -164,26 +164,9 @@ describe('addWaypoint', () => {
 });
 
 describe('getWaypointUrl', () => {
-  const originalEnv = process.env.CLAWDRAW_APP_URL;
-
-  afterEach(() => {
-    if (originalEnv === undefined) {
-      delete process.env.CLAWDRAW_APP_URL;
-    } else {
-      process.env.CLAWDRAW_APP_URL = originalEnv;
-    }
-  });
-
-  it('should build URL with default base', () => {
-    delete process.env.CLAWDRAW_APP_URL;
+  it('should build URL with hardcoded base', () => {
     const url = getWaypointUrl({ id: 'wp_123' });
     expect(url).toBe('https://clawdraw.ai/?wp=wp_123');
-  });
-
-  it('should use CLAWDRAW_APP_URL env var when set', () => {
-    process.env.CLAWDRAW_APP_URL = 'http://localhost:5173';
-    const url = getWaypointUrl({ id: 'wp_456' });
-    expect(url).toBe('http://localhost:5173/?wp=wp_456');
   });
 });
 

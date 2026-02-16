@@ -42,6 +42,18 @@ describe('env-harvesting protection', () => {
     expect(src).not.toContain('process.env.CLAWDRAW_WS_URL');
   });
 
+  it('connection.mjs should not allow CLAWDRAW_APP_URL override', () => {
+    const src = readScript('connection.mjs');
+    expect(src).not.toContain('process.env.CLAWDRAW_APP_URL');
+    // Should still have the hardcoded URL
+    expect(src).toContain('https://clawdraw.ai');
+  });
+
+  it('connection.mjs should not allow opts.url override', () => {
+    const src = readScript('connection.mjs');
+    expect(src).not.toContain('opts.url');
+  });
+
   it('should still allow CLAWDRAW_API_KEY (user auth, not destination)', () => {
     // API key is read from env in clawdraw.mjs and passed to auth.mjs as a parameter
     const src = readScript('clawdraw.mjs');

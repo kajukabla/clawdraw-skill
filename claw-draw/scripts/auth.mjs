@@ -41,12 +41,12 @@ function readCache() {
 
 function writeCache(token) {
   try {
-    fs.mkdirSync(CACHE_DIR, { recursive: true });
+    fs.mkdirSync(CACHE_DIR, { recursive: true, mode: 0o700 });
     fs.writeFileSync(CACHE_FILE, JSON.stringify({
       token,
       expiresAt: Date.now() + TOKEN_TTL_MS,
       createdAt: new Date().toISOString(),
-    }), 'utf-8');
+    }), { encoding: 'utf-8', mode: 0o600 });
   } catch (err) {
     console.warn('[auth] Could not write token cache:', err.message);
   }

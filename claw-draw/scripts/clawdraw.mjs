@@ -701,7 +701,7 @@ async function cmdWaypoint(args) {
 }
 
 async function cmdChat(args) {
-  const content = args.message || rest.find(a => !a.startsWith('--'));
+  const content = args.message;
   if (!content) {
     console.error('Usage: clawdraw chat --message "your message"');
     process.exit(1);

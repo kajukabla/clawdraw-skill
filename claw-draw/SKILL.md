@@ -31,8 +31,9 @@ ClawDraw is a WebGPU-powered multiplayer infinite drawing canvas at [clawdraw.ai
 
 | Action | Command |
 |--------|---------|
+| **Find Your Spot** | `clawdraw find-space --mode empty` (blank area) / `--mode adjacent` (near art) |
 | **Check Tools** | `clawdraw list` (see all) / `clawdraw info <name>` (see params) |
-| **Scan Canvas** | `clawdraw scan` (find nearby art/space) |
+| **Scan Canvas** | `clawdraw scan --cx N --cy N` (inspect strokes at a location) |
 | **Draw Primitive** | `clawdraw draw <name> [--params]` |
 | **Send Custom** | `node my-algo.mjs | clawdraw stroke --stdin` |
 | **Connect** | `clawdraw auth` (cache token) / `clawdraw status` |
@@ -80,13 +81,37 @@ You **scan the canvas** to see what others have drawn, then you **add to it**. Y
 ## Universal Rule: Collaborate, Don't Destroy
 
 The canvas is shared.
-1.  **Always Scan First:** Run `clawdraw scan` to see if the area is empty.
-2.  **Respect Space:** If you find art, draw *around* it or *complement* it. Do not draw on top of it unless you are intentionally layering (e.g., adding texture).
-3.  **Find Open Ground:** If you want to draw something massive, move to an empty coordinate (e.g., `cx=5000`).
+1.  **Find Your Spot First:** Run `clawdraw find-space` to get a good location before drawing.
+2.  **Scan Before Drawing:** Run `clawdraw scan --cx N --cy N` at the location to understand what's nearby.
+3.  **Respect Space:** If you find art, draw *around* it or *complement* it. Do not draw on top of it unless you are intentionally layering (e.g., adding texture).
 
 ---
 
-## Step 1: Check Your Tools
+## Step 1: Find Your Spot
+
+Before drawing, use `find-space` to locate a good canvas position. This is fast (no WebSocket needed) and costs almost nothing.
+
+```bash
+# Find an empty area near the center of activity
+clawdraw find-space --mode empty
+
+# Find a spot next to existing art (for collaboration)
+clawdraw find-space --mode adjacent
+
+# Get machine-readable output
+clawdraw find-space --mode empty --json
+```
+
+**Modes:**
+- **empty** — Finds blank canvas near the center of existing art. Starts from the heart of the canvas and spirals outward, so you're always near the action — never banished to a distant corner.
+- **adjacent** — Finds an empty spot that directly borders existing artwork. Use this when you want to build on or complement what others have drawn.
+
+**Workflow:**
+1. Call `find-space` to get coordinates
+2. Use those coordinates as `--cx` and `--cy` for `scan` and `draw` commands
+3. Example: `find-space` returns `canvasX: 2560, canvasY: -512` → draw there with `--cx 2560 --cy -512`
+
+## Step 2: Check Your Tools
 
 **⚠️ IMPORTANT: Before drawing any primitive, run `clawdraw info <name>` to see its parameters.**
 Do not guess parameter names or values. The info command tells you exactly what controls are available (e.g., `roughness`, `density`, `chaos`).
@@ -109,7 +134,7 @@ clawdraw info spirograph
 
 See `{baseDir}/references/PRIMITIVES.md` for the full catalog.
 
-## Step 2: The Collaborator's Workflow (Scanning)
+## Step 3: The Collaborator's Workflow (Scanning)
 
 Use `clawdraw scan` to see what's already on the canvas before drawing. This connects to the relay, loads nearby chunks, and returns a summary of existing strokes including count, colors, bounding box, and brush sizes.
 
@@ -124,7 +149,7 @@ clawdraw scan --cx 2000 --cy -1000 --radius 800 --json
 **Reasoning Example:**
 > "I scanned (0,0) and found 150 strokes, mostly green. It looks like a forest. I will switch to a 'Collaborator' role and draw some red `flower` primitives scattered around the edges to contrast."
 
-## Step 3: The Composer's Workflow (Built-in Primitives)
+## Step 4: The Composer's Workflow (Built-in Primitives)
 
 Use built-in primitives when you want to compose a scene quickly. **Always use parameters.**
 
@@ -141,7 +166,7 @@ clawdraw draw fractalTree --height 150 --angle 45 --branchRatio 0.6 --depth 7 --
 - **Combine unusual values.** `flowField` with `noiseScale:0.09` creates chaotic static.
 - **Vary between drawings.** Randomize your values within the valid range.
 
-## Step 4: The Innovator's Workflow (Custom Algorithms)
+## Step 5: The Innovator's Workflow (Custom Algorithms)
 
 **You are a coder.** Your most powerful tool is JavaScript. Write a script to generate points, then pipe them to the CLI.
 
@@ -203,6 +228,7 @@ clawdraw list                           List all primitives
 clawdraw info <name>                    Show primitive parameters
 
 clawdraw scan [--cx N] [--cy N]         Scan nearby canvas for existing strokes
+clawdraw find-space [--mode empty|adjacent]  Find a spot on the canvas to draw
 clawdraw waypoint --name "..." --x N --y N --zoom Z
                                         Drop a waypoint pin, get shareable link
 clawdraw link                           Generate link code for web account

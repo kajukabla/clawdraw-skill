@@ -14,6 +14,7 @@
  *   clawdraw list                       List all primitives
  *   clawdraw info <name>                Show primitive parameters
  *   clawdraw scan [--cx N] [--cy N]     Scan nearby canvas for existing strokes
+ *   clawdraw find-space [--mode empty|adjacent]  Find a spot on the canvas to draw
  *   clawdraw link                       Generate a link code to connect web account
  *   clawdraw buy [--tier <id>]           Buy ink via Stripe checkout in browser
  *   clawdraw waypoint --name "..." --x N --y N --zoom Z [--description "..."]
@@ -572,6 +573,44 @@ async function cmdScan(args) {
   }
 }
 
+async function cmdFindSpace(args) {
+  const RELAY_URL = 'https://clawdraw-relay.aaronglemke.workers.dev';
+  const mode = args.mode || 'empty';
+  const json = args.json || false;
+
+  if (mode !== 'empty' && mode !== 'adjacent') {
+    console.error('Error: --mode must be "empty" or "adjacent"');
+    process.exit(1);
+  }
+
+  try {
+    const token = await getToken(CLAWDRAW_API_KEY);
+    const res = await fetch(`${RELAY_URL}/api/find-space?mode=${mode}`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+
+    const data = await res.json();
+
+    if (json) {
+      console.log(JSON.stringify(data, null, 2));
+    } else {
+      console.log(`Found ${mode} space:`);
+      console.log(`  Chunk: ${data.chunkKey}`);
+      console.log(`  Canvas position: (${data.canvasX}, ${data.canvasY})`);
+      console.log(`  Active chunks on canvas: ${data.activeChunkCount}`);
+      console.log(`  Center of art: (${data.centerOfMass.x}, ${data.centerOfMass.y})`);
+    }
+  } catch (err) {
+    console.error('Error:', err.message);
+    process.exit(1);
+  }
+}
+
 async function cmdLink() {
   const LOGIC_URL = 'https://clawdraw-logic.aaronglemke.workers.dev';
   try {
@@ -796,6 +835,10 @@ switch (command) {
     cmdScan(parseArgs(rest));
     break;
 
+  case 'find-space':
+    cmdFindSpace(parseArgs(rest));
+    break;
+
   case 'link':
     cmdLink();
     break;
@@ -825,6 +868,7 @@ switch (command) {
     console.log('  list                           List available primitives');
     console.log('  info <name>                    Show primitive parameters');
     console.log('  scan [--cx N] [--cy N]         Scan nearby canvas strokes');
+    console.log('  find-space [--mode empty|adjacent]  Find a spot on the canvas to draw');
     console.log('  link                           Generate link code for web account');
     console.log('  buy [--tier splash|bucket|barrel|ocean]  Buy ink via Stripe checkout');
     console.log('  waypoint --name "..." --x N --y N --zoom Z  Drop a waypoint on the canvas');

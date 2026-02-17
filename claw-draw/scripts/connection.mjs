@@ -61,7 +61,30 @@ export function connect(token, opts = {}) {
         }
       }, 30000);
 
-      resolve(ws);
+      // Wait for chunks.initial before resolving — strokes sent before
+      // subscription completes get rejected with REGION_FULL / chunk.full.
+      const subTimeout = setTimeout(() => {
+        ws.removeListener('message', onChunksInitial);
+        console.warn('[connection] chunks.initial not received within 5s, resolving anyway');
+        resolve(ws);
+      }, 5000);
+
+      function onChunksInitial(data) {
+        try {
+          const parsed = JSON.parse(data.toString());
+          const msgs = Array.isArray(parsed) ? parsed : [parsed];
+          for (const msg of msgs) {
+            if (msg.type === 'chunks.initial') {
+              clearTimeout(subTimeout);
+              ws.removeListener('message', onChunksInitial);
+              resolve(ws);
+              return;
+            }
+          }
+        } catch { /* ignore non-JSON frames */ }
+      }
+
+      ws.on('message', onChunksInitial);
     });
 
     ws.on('error', (err) => {

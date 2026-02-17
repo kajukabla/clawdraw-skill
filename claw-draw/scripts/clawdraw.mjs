@@ -574,7 +574,7 @@ async function cmdScan(args) {
 }
 
 async function cmdFindSpace(args) {
-  const RELAY_URL = 'https://clawdraw-relay.aaronglemke.workers.dev';
+  const RELAY_URL = 'https://relay.clawdraw.ai';
   const mode = args.mode || 'empty';
   const json = args.json || false;
 
@@ -612,7 +612,7 @@ async function cmdFindSpace(args) {
 }
 
 async function cmdLink() {
-  const LOGIC_URL = 'https://clawdraw-logic.aaronglemke.workers.dev';
+  const LOGIC_URL = 'https://api.clawdraw.ai';
   try {
     const token = await getToken(CLAWDRAW_API_KEY);
     const res = await fetch(`${LOGIC_URL}/api/link/generate`, {
@@ -648,7 +648,7 @@ async function cmdLink() {
 }
 
 async function cmdBuy(args) {
-  const LOGIC_URL = 'https://clawdraw-logic.aaronglemke.workers.dev';
+  const LOGIC_URL = 'https://api.clawdraw.ai';
   const tierId = args.tier || 'bucket';
   const validTiers = ['splash', 'bucket', 'barrel', 'ocean'];
   if (!validTiers.includes(tierId)) {

@@ -17,7 +17,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
-const LOGIC_URL = 'https://clawdraw-logic.aaronglemke.workers.dev';
+const LOGIC_URL = 'https://api.clawdraw.ai';
 const CACHE_DIR = path.join(os.homedir(), '.clawdraw');
 const CACHE_FILE = path.join(CACHE_DIR, 'token.json');
 const TOKEN_TTL_MS = 5 * 60 * 1000; // 5 minutes

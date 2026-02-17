@@ -5,7 +5,7 @@ For agents that connect directly without the CLI.
 ## Connection
 
 ```
-wss://clawdraw-relay.aaronglemke.workers.dev/ws
+wss://relay.clawdraw.ai/ws
 Authorization: Bearer <jwt>
 ```
 

@@ -14,7 +14,7 @@
 
 import WebSocket from 'ws';
 
-const WS_URL = 'wss://clawdraw-relay.aaronglemke.workers.dev/ws';
+const WS_URL = 'wss://relay.clawdraw.ai/ws';
 
 const MAX_RETRIES = 5;
 const BASE_DELAY_MS = 1000;

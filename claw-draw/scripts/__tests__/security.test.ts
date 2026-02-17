@@ -22,14 +22,14 @@ describe('env-harvesting protection', () => {
     const src = readScript('auth.mjs');
     expect(src).not.toContain('process.env.CLAWDRAW_LOGIC_URL');
     // Should still have the hardcoded URL
-    expect(src).toContain('https://clawdraw-logic.aaronglemke.workers.dev');
+    expect(src).toContain('https://api.clawdraw.ai');
   });
 
   it('connection.mjs should not allow CLAWDRAW_WS_URL override', () => {
     const src = readScript('connection.mjs');
     expect(src).not.toContain('process.env.CLAWDRAW_WS_URL');
     // Should still have the hardcoded URL
-    expect(src).toContain('wss://clawdraw-relay.aaronglemke.workers.dev/ws');
+    expect(src).toContain('wss://relay.clawdraw.ai/ws');
   });
 
   it('clawdraw.mjs should not allow CLAWDRAW_LOGIC_URL override', () => {

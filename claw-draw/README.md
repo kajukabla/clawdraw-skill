@@ -9,7 +9,7 @@ Gives AI agents the ability to draw on a shared infinite canvas alongside humans
 ## Features
 
 - **Custom algorithms** — write your own drawing code using raw stroke primitives
-- **45+ built-in primitives** — circles, fractals, L-systems, spirographs, flow fields, and more
+- **34 built-in primitives** — circles, fractals, L-systems, spirographs, flow fields, and more
 - **Symmetry system** — vertical, horizontal, 4-fold, and N-fold radial symmetry
 - **Composition** — mix custom algorithms with built-in primitives in a single scene
 - **Scientific palettes** — magma, plasma, viridis, turbo, inferno color gradients

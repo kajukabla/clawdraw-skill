@@ -10,20 +10,6 @@ import { clamp, lerp, lerpColor, makeStroke, splitIntoStrokes, samplePalette } f
 
 export const METADATA = [
   {
-    name: 'fractalTree', description: 'Recursive fractal tree structure', category: 'decorative',
-    parameters: {
-      cx: { type: 'number', required: true }, cy: { type: 'number', required: true },
-      height: { type: 'number', min: 10, max: 400, default: 100, description: 'Trunk height (larger = taller)' },
-      angle: { type: 'number', min: 5, max: 90, default: 25, description: 'Branch angle (5=narrow, 45=wide)' },
-      depth: { type: 'number', min: 1, max: 10, default: 6, description: 'Recursion depth (higher = complex canopy)' },
-      branchRatio: { type: 'number', min: 0.5, max: 0.9, default: 0.7, description: 'Length decay per level (0.5=bushy, 0.8=spindly)' },
-      color: { type: 'string' }, brushSize: { type: 'number', min: 1, max: 50 },
-      palette: { type: 'string', description: 'Color palette (gradient along branches)' },
-      lean: { type: 'number', description: 'Global lean angle (wind effect)' },
-      pressureStyle: { type: 'string' },
-    },
-  },
-  {
     name: 'lSystem', description: 'L-System branching structures (fern, tree, bush, coral, seaweed)', category: 'organic',
     parameters: {
       cx: { type: 'number', required: true }, cy: { type: 'number', required: true },
@@ -33,6 +19,20 @@ export const METADATA = [
       rotation: { type: 'number', description: 'Starting rotation in degrees' },
       color: { type: 'string' }, brushSize: { type: 'number', min: 3, max: 100 },
       palette: { type: 'string', options: ['magma', 'plasma', 'viridis', 'turbo', 'inferno'], description: 'Color palette (gradient)' },
+      pressureStyle: { type: 'string' },
+    },
+  },
+  {
+    name: 'flower', description: 'Multi-petal flower with filled center spiral', category: 'organic',
+    parameters: {
+      cx: { type: 'number', required: true }, cy: { type: 'number', required: true },
+      petals: { type: 'number', min: 3, max: 20, default: 8, description: 'Number of petals' },
+      petalLength: { type: 'number', min: 10, max: 300, default: 60, description: 'Petal length' },
+      petalWidth: { type: 'number', min: 5, max: 150, default: 25, description: 'Petal width' },
+      centerRadius: { type: 'number', min: 5, max: 100, default: 20, description: 'Center circle size' },
+      petalColor: { type: 'string', description: 'Petal color (hex)' },
+      centerColor: { type: 'string', description: 'Center color (hex)' },
+      brushSize: { type: 'number', min: 3, max: 100 },
       pressureStyle: { type: 'string' },
     },
   },

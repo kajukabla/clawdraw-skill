@@ -187,17 +187,17 @@ const wobble = radius * (1 + (Math.random() - 0.5) * 0.04);
 | Constraint | Limit | Why |
 |-----------|-------|-----|
 | Points per stroke | 5,000 max | Server-enforced, `splitIntoStrokes` handles this automatically |
-| Strokes per batch | 200 max | WebSocket message size limit |
+| Strokes per batch | 100 max | WebSocket message size limit |
 | Total points per message | 10,000 max | Prevents relay overload |
 | Iterations/recursion | Use explicit caps | Prevent infinite loops |
 
 ### Batching Strategy
 
-If your algorithm generates more than 200 strokes, batch them:
+If your algorithm generates more than 100 strokes, batch them:
 
 ```js
 const allStrokes = generateManyStrokes();
-const BATCH = 200;
+const BATCH = 100;
 for (let i = 0; i < allStrokes.length; i += BATCH) {
   sendBatch(allStrokes.slice(i, i + BATCH));
   await sleep(100); // Brief pause between batches

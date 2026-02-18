@@ -1,6 +1,6 @@
-# Built-in Primitives Reference
+# Primitives Reference
 
-34 built-in primitives organized into 6 categories. All primitives return an array of stroke objects.
+75 primitives organized into 10 categories (34 built-in + 41 community). All primitives return an array of stroke objects.
 
 Common optional parameters (available on most primitives unless noted):
 - `color` (string): Hex color, default `#ffffff`
@@ -10,7 +10,7 @@ Common optional parameters (available on most primitives unless noted):
 
 ---
 
-## Basic Shapes (6)
+## Shapes (6 built-in + 3 community)
 
 ### circle
 Smooth circle with slight organic wobble.
@@ -54,9 +54,37 @@ N-pointed star.
 - `points` (number, required): Number of points, 3-20
 - `rotation` (number): Rotation in degrees (default -90)
 
+### hexGrid
+Hexagonal honeycomb grid.
+- `cx` (number, required): Center X
+- `cy` (number, required): Center Y
+- `size` (number): Overall radius (default 1000)
+- `hexSize` (number): Single hex radius (default 100)
+
+### gear
+Mechanical cog wheel with trapezoidal teeth, inner hub, and radial spokes.
+- `cx` (number, required): Center X
+- `cy` (number, required): Center Y
+- `outerRadius` (number): Outer tooth radius, 30-500 (default 170)
+- `teeth` (number): Number of teeth, 6-40 (default 16)
+- `hubRadius` (number): Inner hub radius, 10-outerRadius*0.6 (default 60)
+- `toothDepth` (number): Tooth depth ratio, 0.1-0.5 (default 0.25)
+- `palette` (string): Color palette name
+
+### schotter
+Georg Nees Schotter — grid of squares with increasing random disorder.
+- `cx` (number, required): Center X
+- `cy` (number, required): Center Y
+- `width` (number): Grid width, 50-800 (default 280)
+- `height` (number): Grid height, 50-800 (default 280)
+- `cols` (number): Number of columns, 2-30 (default 12)
+- `rows` (number): Number of rows, 2-30 (default 12)
+- `decay` (number): Disorder increase rate, 0.1-3 (default 1.0)
+- `palette` (string): Color palette name
+
 ---
 
-## Organic (7)
+## Organic (7 built-in + 5 community)
 
 ### lSystem
 L-System branching structures.
@@ -118,9 +146,161 @@ Barnsley Fern IFS fractal.
 - `curl` (number): Curl factor, 0.5-1.5 (default 1.0)
 - `palette` (string): Color palette name
 
+### vineGrowth
+Recursive branching vine tendrils with curl noise and leaf loops at tips.
+- `cx` (number, required): Center X
+- `cy` (number, required): Center Y
+- `radius` (number): Growth radius, 20-500 (default 150)
+- `branches` (number): Root branch count, 2-16 (default 8)
+- `maxDepth` (number): Max recursion depth, 1-8 (default 5)
+- `palette` (string): Color palette name
+
+### phyllotaxisSpiral
+Sunflower-inspired golden angle spiral pattern.
+- `cx` (number, required): Center X
+- `cy` (number, required): Center Y
+- `radius` (number): Outer radius, 10-500 (default 150)
+- `numPoints` (number): Number of seed points, 10-500 (default 200)
+- `dotSize` (number): Dot scale relative to spacing, 0.1-1.0 (default 0.4)
+- `palette` (string): Color palette name
+
+### lichenGrowth
+Cyclic cellular automaton rendered as colored cell blocks.
+- `cx` (number, required): Center X
+- `cy` (number, required): Center Y
+- `width` (number): Pattern width, 50-800 (default 300)
+- `height` (number): Pattern height, 50-800 (default 300)
+- `states` (number): Number of cell states, 3-16 (default 6)
+- `iterations` (number): Simulation iterations, 1-100 (default 30)
+- `palette` (string): Color palette name
+
+### slimeMold
+Physarum slime mold agent simulation with trail visualization.
+- `cx` (number, required): Center X
+- `cy` (number, required): Center Y
+- `width` (number): Field width, 50-600 (default 300)
+- `height` (number): Field height, 50-600 (default 300)
+- `agents` (number): Number of agents, 10-500 (default 100)
+- `steps` (number): Simulation steps, 10-200 (default 60)
+- `sensorDist` (number): Sensor distance, 1-30 (default 9)
+- `sensorAngle` (number): Sensor angle in radians, 0.1-1.5 (default 0.5)
+- `turnSpeed` (number): Turn speed in radians, 0.05-1.0 (default 0.3)
+- `decayRate` (number): Trail decay rate, 0.5-0.99 (default 0.9)
+- `palette` (string): Color palette name
+
+### dla
+Diffusion-Limited Aggregation fractal growth pattern.
+- `cx` (number, required): Center X
+- `cy` (number, required): Center Y
+- `radius` (number): Growth radius, 20-400 (default 140)
+- `particles` (number): Max branches, 10-500 (default 100)
+- `stickiness` (number): Branch wiggle, 0-1 (default 0.8)
+- `palette` (string): Color palette name
+
 ---
 
-## Flow / Abstract (5)
+## Fractals (10 community)
+
+### mandelbrot
+Mandelbrot set escape-time fractal with contour lines.
+- `cx` (number, required): Center X on canvas
+- `cy` (number, required): Center Y on canvas
+- `width` (number): Pattern width, 50-800 (default 300)
+- `height` (number): Pattern height, 50-800 (default 300)
+- `maxIter` (number): Max iterations, 10-200 (default 40)
+- `zoom` (number): Zoom level, 0.1-100 (default 1)
+- `centerReal` (number): Real center in complex plane (default -0.5)
+- `centerImag` (number): Imaginary center (default 0)
+- `contours` (number): Number of contour levels, 2-20 (default 8)
+- `palette` (string): Color palette name
+
+### juliaSet
+Julia set escape-time fractal with marching-squares contour lines.
+- `cx` (number, required): Center X on canvas
+- `cy` (number, required): Center Y on canvas
+- `width` (number): Pattern width, 50-800 (default 300)
+- `height` (number): Pattern height, 50-800 (default 300)
+- `cReal` (number): Real part of c constant (default -0.7)
+- `cImag` (number): Imaginary part of c constant (default 0.27015)
+- `maxIter` (number): Max iterations, 10-200 (default 50)
+- `contours` (number): Number of contour levels, 2-20 (default 10)
+- `palette` (string): Color palette name
+
+### apollonianGasket
+Recursive circle packing using Descartes circle theorem.
+- `cx` (number, required): Center X
+- `cy` (number, required): Center Y
+- `radius` (number): Outer circle radius, 10-500 (default 150)
+- `maxDepth` (number): Recursion depth, 1-6 (default 4)
+- `minRadius` (number): Minimum circle radius to draw, 1-50 (default 3)
+- `palette` (string): Color palette name
+
+### dragonCurve
+Heighway dragon fractal curve via L-system iterative fold sequence.
+- `cx` (number, required): Center X
+- `cy` (number, required): Center Y
+- `size` (number): Fit size, 50-800 (default 300)
+- `iterations` (number): Fold iterations, 1-16 (default 12)
+- `palette` (string): Color palette name
+
+### kochSnowflake
+Koch snowflake fractal via recursive edge subdivision.
+- `cx` (number, required): Center X
+- `cy` (number, required): Center Y
+- `radius` (number): Circumscribed radius, 20-500 (default 150)
+- `depth` (number): Recursion depth, 1-6 (default 4)
+- `palette` (string): Color palette name
+
+### sierpinskiTriangle
+Recursive Sierpinski triangle fractal.
+- `cx` (number, required): Center X
+- `cy` (number, required): Center Y
+- `radius` (number): Distance from center to vertex, 10-500 (default 120)
+- `depth` (number): Recursion depth, 1-5 (default 4)
+- `palette` (string): Color palette name
+
+### kaleidoscopicIfs
+Chaos game iterated function system with kaleidoscopic symmetry.
+- `cx` (number, required): Center X
+- `cy` (number, required): Center Y
+- `radius` (number): Fit radius, 20-500 (default 150)
+- `symmetry` (number): Fold symmetry order, 2-24 (default 6)
+- `transforms` (number): Number of IFS transforms, 2-8 (default 3)
+- `iterations` (number): Chaos game iterations, 100-50000 (default 8000)
+- `numStrokes` (number): Stroke segments, 1-200 (default 80)
+- `palette` (string): Color palette name
+
+### penroseTiling
+Penrose P3 tiling via Robinson triangle subdivision with golden ratio.
+- `cx` (number, required): Center X
+- `cy` (number, required): Center Y
+- `radius` (number): Outer radius of initial decagon, 10-500 (default 170)
+- `depth` (number): Subdivision depth, 1-6 (default 4)
+- `palette` (string): Color palette name
+
+### hyperbolicTiling
+Poincare disk model hyperbolic tiling using Mobius transformations.
+- `cx` (number, required): Center X
+- `cy` (number, required): Center Y
+- `radius` (number): Poincare disk radius, 10-500 (default 170)
+- `p` (number): Polygon sides, 3-8 (default 5)
+- `q` (number): Polygons meeting at each vertex, 3-8 (default 4)
+- `maxDepth` (number): Recursion depth, 1-4 (default 3)
+- `palette` (string): Color palette name
+
+### viridisVortex
+A recursive fractal spiral with noise warp and pure viridis gradient.
+- `cx` (number, required): Center X
+- `cy` (number, required): Center Y
+- `size` (number): Size of the vortex, 500-10000 (default 2000)
+- `arms` (number): Number of spiral arms, 3-20 (default 7)
+- `turns` (number): Number of turns per arm, 1-10 (default 4)
+- `warp` (number): Amount of noise warp (default 100)
+- `palette` (string): Color palette (default viridis)
+
+---
+
+## Flow (5 built-in + 5 community)
 
 ### flowField
 Perlin noise flow field with particle traces.
@@ -166,6 +346,201 @@ Spirograph (epitrochoid) geometric curves.
 - `traceR` (number): Trace point distance, 1-400 (default 30)
 - `revolutions` (number): Number of revolutions, 1-50 (default 10)
 - `startAngle` (number): Starting angle in degrees
+- `palette` (string): Color palette name
+
+### cliffordAttractor
+Clifford strange attractor with sinusoidal dynamics.
+- `cx` (number, required): Center X
+- `cy` (number, required): Center Y
+- `radius` (number): Fit radius, 20-500 (default 150)
+- `a` (number): Parameter a (default -1.4)
+- `b` (number): Parameter b (default 1.6)
+- `c` (number): Parameter c (default 1.0)
+- `d` (number): Parameter d (default 0.7)
+- `numPoints` (number): Iteration count, 100-50000 (default 8000)
+- `numStrokes` (number): Stroke segments, 1-200 (default 80)
+- `palette` (string): Color palette name
+
+### hopalongAttractor
+Martin hopalong map producing intricate orbital scatter patterns.
+- `cx` (number, required): Center X
+- `cy` (number, required): Center Y
+- `radius` (number): Fit radius, 20-500 (default 150)
+- `a` (number): Parameter a (default 1.1)
+- `b` (number): Parameter b (default 2.0)
+- `c` (number): Parameter c (default 0.5)
+- `numPoints` (number): Iteration count, 100-50000 (default 5000)
+- `numStrokes` (number): Stroke segments, 1-200 (default 80)
+- `palette` (string): Color palette name
+
+### doublePendulum
+Chaotic double pendulum trajectories via RK4 Lagrangian integration.
+- `cx` (number, required): Center X
+- `cy` (number, required): Center Y
+- `radius` (number): Fit radius, 20-500 (default 150)
+- `angle1` (number): Initial angle 1 in degrees (default 120)
+- `angle2` (number): Initial angle 2 in degrees (default 150)
+- `steps` (number): Simulation steps, 100-5000 (default 1500)
+- `traces` (number): Number of pendulum traces, 1-40 (default 5)
+- `palette` (string): Color palette name
+
+### orbitalDynamics
+Gravitational orbit trails around attractor points.
+- `cx` (number, required): Center X
+- `cy` (number, required): Center Y
+- `radius` (number): System radius, 20-500 (default 150)
+- `numBodies` (number): Number of orbiting bodies, 2-30 (default 8)
+- `attractors` (number): Number of gravity attractors, 1-5 (default 2)
+- `steps` (number): Simulation steps per body, 50-2000 (default 300)
+- `gravity` (number): Gravitational strength, 50-5000 (default 500)
+- `palette` (string): Color palette name
+
+### gielisSuperformula
+Layered Gielis superformula curves (supershapes) with parametric variation.
+- `cx` (number, required): Center X
+- `cy` (number, required): Center Y
+- `radius` (number): Outer radius, 10-500 (default 120)
+- `m` (number): Rotational symmetry order (default 5)
+- `n1` (number): Exponent n1 (default 0.3)
+- `n2` (number): Exponent n2 (default 0.3)
+- `n3` (number): Exponent n3 (default 0.3)
+- `a` (number): Parameter a (default 1)
+- `b` (number): Parameter b (default 1)
+- `layers` (number): Number of concentric layers, 1-30 (default 8)
+- `pointsPerLayer` (number): Points per layer, 50-500 (default 200)
+- `palette` (string): Color palette name
+
+---
+
+## Noise (9 community)
+
+### voronoiNoise
+Organic Voronoi cell noise pattern with hand-drawn edges.
+- `cx` (number, required): Center X
+- `cy` (number, required): Center Y
+- `width` (number): Pattern width, 50-800 (default 300)
+- `height` (number): Pattern height, 50-800 (default 300)
+- `numCells` (number): Number of seed points, 5-80 (default 25)
+- `wobble` (number): Hand-drawn wobble amount, 0-1 (default 0.3)
+- `palette` (string): Color palette name
+
+### voronoiCrackle
+Voronoi cell edge pattern using F2-F1 distance field with marching squares contours.
+- `cx` (number, required): Center X
+- `cy` (number, required): Center Y
+- `width` (number): Pattern width, 50-800 (default 350)
+- `height` (number): Pattern height, 50-800 (default 350)
+- `numCells` (number): Number of seed points, 3-80 (default 25)
+- `contours` (number): Number of contour levels, 1-10 (default 4)
+- `palette` (string): Color palette name
+
+### voronoiGrid
+Voronoi-style cellular grid generated by edge scanning.
+- `cx` (number, required): Center X
+- `cy` (number, required): Center Y
+- `width` (number): Width, 100-5000 (default 1000)
+- `height` (number): Height, 100-5000 (default 1000)
+- `cells` (number): Number of cells, 5-100 (default 20)
+- `palette` (string): Color palette (default magma)
+
+### worleyNoise
+Worley (cellular) noise with F1/F2 distance field contour extraction.
+- `cx` (number, required): Center X
+- `cy` (number, required): Center Y
+- `width` (number): Pattern width, 50-800 (default 350)
+- `height` (number): Pattern height, 50-800 (default 350)
+- `numCells` (number): Number of Worley seed points, 3-50 (default 15)
+- `mode` (string): Distance mode: `F1`, `F2`, or `F2minusF1` (default `F2minusF1`)
+- `contours` (number): Number of contour levels, 2-12 (default 5)
+- `palette` (string): Color palette name
+
+### domainWarping
+Inigo Quilez nested noise domain warping with organic contour extraction.
+- `cx` (number, required): Center X
+- `cy` (number, required): Center Y
+- `width` (number): Pattern width, 50-800 (default 350)
+- `height` (number): Pattern height, 50-800 (default 350)
+- `scale` (number): Noise scale, 0.001-0.05 (default 0.008)
+- `warpStrength` (number): Warp displacement strength, 10-200 (default 80)
+- `warpOctaves` (number): Number of warp octaves, 1-4 (default 2)
+- `contours` (number): Number of contour levels, 2-12 (default 5)
+- `palette` (string): Color palette name
+
+### turingPatterns
+Multi-octave noise turbulence with sin() modulation for organic stripe and spot contours.
+- `cx` (number, required): Center X
+- `cy` (number, required): Center Y
+- `width` (number): Pattern width, 50-800 (default 350)
+- `height` (number): Pattern height, 50-800 (default 350)
+- `scale` (number): Noise scale, 0.005-0.2 (default 0.03)
+- `complexity` (number): Sin modulation complexity, 1-8 (default 3)
+- `contours` (number): Number of contour levels, 2-12 (default 5)
+- `palette` (string): Color palette name
+
+### reactionDiffusion
+Turing-inspired reaction-diffusion contour patterns (spots, stripes, labyrinths).
+- `cx` (number, required): Center X
+- `cy` (number, required): Center Y
+- `width` (number): Pattern width, 50-800 (default 300)
+- `height` (number): Pattern height, 50-800 (default 300)
+- `scale` (number): Noise scale — smaller = larger blobs, 0.005-0.2 (default 0.04)
+- `contours` (number): Number of contour levels, 2-12 (default 5)
+- `palette` (string): Color palette name
+
+### grayScott
+Gray-Scott PDE reaction-diffusion simulation with contour extraction.
+- `cx` (number, required): Center X
+- `cy` (number, required): Center Y
+- `width` (number): Pattern width, 50-800 (default 350)
+- `height` (number): Pattern height, 50-800 (default 350)
+- `feed` (number): Feed rate, 0.01-0.1 (default 0.037)
+- `kill` (number): Kill rate, 0.01-0.1 (default 0.06)
+- `iterations` (number): Simulation iterations, 50-500 (default 150)
+- `contours` (number): Number of contour levels, 2-12 (default 5)
+- `palette` (string): Color palette name
+
+### metaballs
+Metaball implicit surface field with smooth blobby contour extraction.
+- `cx` (number, required): Center X
+- `cy` (number, required): Center Y
+- `width` (number): Pattern width, 50-800 (default 350)
+- `height` (number): Pattern height, 50-800 (default 350)
+- `numBalls` (number): Number of metaballs, 2-12 (default 5)
+- `threshold` (number): Iso-surface threshold, 0.1-5 (default 1.0)
+- `contours` (number): Number of contour levels, 2-12 (default 4)
+- `palette` (string): Color palette name
+
+---
+
+## Simulation (3 community)
+
+### gameOfLife
+Conway's Game of Life cellular automaton with R-pentomino seed.
+- `cx` (number, required): Center X
+- `cy` (number, required): Center Y
+- `width` (number): Grid width in pixels, 50-800 (default 300)
+- `height` (number): Grid height in pixels, 50-800 (default 300)
+- `generations` (number): Simulation generations, 10-500 (default 200)
+- `cellSize` (number): Cell size in pixels, 2-20 (default 5)
+- `palette` (string): Color palette name
+
+### langtonsAnt
+Langton's Ant cellular automaton with emergent highway patterns.
+- `cx` (number, required): Center X
+- `cy` (number, required): Center Y
+- `width` (number): Pattern width, 50-800 (default 280)
+- `height` (number): Pattern height, 50-800 (default 280)
+- `steps` (number): Simulation steps, 100-50000 (default 11000)
+- `cellSize` (number): Cell size in pixels, 2-20 (default 4)
+- `palette` (string): Color palette name
+
+### waveFunctionCollapse
+Simplified wave function collapse with pipe/maze tileset.
+- `cx` (number, required): Center X
+- `cy` (number, required): Center Y
+- `width` (number): Pattern width, 50-800 (default 280)
+- `height` (number): Pattern height, 50-800 (default 280)
+- `tileSize` (number): Tile size, 10-60 (default 25)
 - `palette` (string): Color palette name
 
 ---
@@ -222,7 +597,7 @@ Solid color fill (alias for colorWash).
 
 ---
 
-## Decorative (5)
+## Decorative (5 built-in + 3 community)
 
 ### border
 Decorative border frame.
@@ -264,6 +639,71 @@ Sacred geometry patterns.
 - `cx`, `cy` (number, required): Center
 - `radius` (number): Overall radius, 10-500 (default 120)
 - `pattern` (string): One of `flowerOfLife`, `goldenSpiral`, `metatronsCube`, `sriYantra`
+
+### starburst
+Radial sunburst with alternating triangular rays colored by angle.
+- `cx` (number, required): Center X
+- `cy` (number, required): Center Y
+- `outerRadius` (number): Outer ray radius, 30-500 (default 185)
+- `rays` (number): Number of rays, 8-60 (default 24)
+- `innerRadius` (number): Inner circle radius, 5-outerRadius*0.5 (default 30)
+- `shortRatio` (number): Short ray length ratio, 0.3-0.9 (default 0.6)
+- `palette` (string): Color palette name
+
+### clockworkNebula
+A cosmic scene with starfield, spirograph gears, and nebula dust.
+- `cx` (number, required): Center X
+- `cy` (number, required): Center Y
+- `size` (number): Overall size, 500-10000 (default 3000)
+- `stars` (number): Number of stars, 100-5000 (default 1000)
+- `gears` (number): Number of spirograph gears, 1-50 (default 15)
+- `dust` (number): Amount of nebula dust, 10-200 (default 50)
+- `palette` (string): Color palette (default turbo)
+
+### matrixRain
+Digital rain effect with glitch offsets.
+- `cx` (number, required): Center X
+- `cy` (number, required): Center Y
+- `width` (number): Field width, 100-5000 (default 1000)
+- `height` (number): Field height, 100-5000 (default 1000)
+- `density` (number): Number of drops, 10-500 (default 50)
+- `color` (string): Color (default #00ff00)
+- `glitch` (number): Glitch probability, 0-1 (default 0.1)
+
+---
+
+## 3D (3 community)
+
+### cube3d
+Wireframe 3D cube with rotation and depth shading.
+- `cx` (number, required): Center X
+- `cy` (number, required): Center Y
+- `size` (number): Cube half-size, 10-500 (default 120)
+- `rotateX` (number): X rotation in degrees (default 25)
+- `rotateY` (number): Y rotation in degrees (default 35)
+- `rotateZ` (number): Z rotation in degrees (default 0)
+- `subdivisions` (number): Edge subdivisions for wireframe detail, 0-5 (default 0)
+- `palette` (string): Color palette name
+
+### sphere3d
+Wireframe 3D sphere with latitude and longitude lines.
+- `cx` (number, required): Center X
+- `cy` (number, required): Center Y
+- `radius` (number): Sphere radius, 10-500 (default 120)
+- `latLines` (number): Latitude lines, 2-20 (default 8)
+- `lonLines` (number): Longitude lines, 3-24 (default 12)
+- `rotateX` (number): X rotation in degrees, -90 to 90 (default 20)
+- `rotateY` (number): Y rotation in degrees, -180 to 180 (default 30)
+- `palette` (string): Color palette name
+
+### hypercube
+4D tesseract wireframe projected to 2D with rotation.
+- `cx` (number, required): Center X
+- `cy` (number, required): Center Y
+- `size` (number): Projection scale, 20-500 (default 150)
+- `angleXW` (number): Rotation angle in XW plane in degrees (default 45)
+- `angleYZ` (number): Rotation angle in YZ plane in degrees (default 30)
+- `palette` (string): Color palette name
 
 ---
 

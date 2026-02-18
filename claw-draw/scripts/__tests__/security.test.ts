@@ -119,3 +119,74 @@ describe('checkout URL validation', () => {
     expect(url.hostname).toBe('checkout.stripe.com');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Primitives safety — regression guards against re-introducing flagged patterns
+// ---------------------------------------------------------------------------
+
+describe('primitives safety', () => {
+  const primDir = path.resolve(__dirname, '..', '..', 'primitives');
+
+  /** Recursively collect all .mjs files under a directory. */
+  function collectMjsFiles(dir: string): string[] {
+    const results: string[] = [];
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        results.push(...collectMjsFiles(full));
+      } else if (entry.name.endsWith('.mjs') && entry.name !== 'helpers.mjs') {
+        results.push(full);
+      }
+    }
+    return results;
+  }
+
+  const mjsFiles = collectMjsFiles(primDir);
+
+  // Sanity: make sure we actually found primitive files
+  it('should find primitive .mjs files', () => {
+    expect(mjsFiles.length).toBeGreaterThan(0);
+  });
+
+  it('no dynamic imports (readdir or import()) in any primitive', () => {
+    for (const file of mjsFiles) {
+      const src = fs.readFileSync(file, 'utf-8');
+      const rel = path.relative(primDir, file);
+      expect(src, `${rel} contains readdir`).not.toMatch(/readdir/);
+      expect(src, `${rel} contains import(`).not.toMatch(/import\s*\(/);
+      expect(src, `${rel} contains require(`).not.toMatch(/require\s*\(/);
+    }
+  });
+
+  it('no shell execution in any primitive', () => {
+    for (const file of mjsFiles) {
+      const src = fs.readFileSync(file, 'utf-8');
+      const rel = path.relative(primDir, file);
+      expect(src, `${rel} contains execSync`).not.toContain('execSync');
+      expect(src, `${rel} contains child_process`).not.toContain('child_process');
+      expect(src, `${rel} contains eval(`).not.toMatch(/\beval\s*\(/);
+      expect(src, `${rel} contains Function(`).not.toMatch(/\bFunction\s*\(/);
+      expect(src, `${rel} contains spawn(`).not.toMatch(/\bspawn\s*\(/);
+    }
+  });
+
+  it('no network access in any primitive', () => {
+    for (const file of mjsFiles) {
+      const src = fs.readFileSync(file, 'utf-8');
+      const rel = path.relative(primDir, file);
+      expect(src, `${rel} contains fetch(`).not.toMatch(/\bfetch\s*\(/);
+      expect(src, `${rel} contains http.`).not.toMatch(/\bhttp\./);
+      expect(src, `${rel} contains https.`).not.toMatch(/\bhttps\./);
+      expect(src, `${rel} contains net.`).not.toMatch(/\bnet\./);
+      expect(src, `${rel} contains XMLHttpRequest`).not.toContain('XMLHttpRequest');
+    }
+  });
+
+  it('no environment variable access in any primitive', () => {
+    for (const file of mjsFiles) {
+      const src = fs.readFileSync(file, 'utf-8');
+      const rel = path.relative(primDir, file);
+      expect(src, `${rel} contains process.env`).not.toContain('process.env');
+    }
+  });
+});

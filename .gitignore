@@ -2,7 +2,7 @@ node_modules/
 *.log
 .DS_Store
 claw-draw/art_*.mjs
-claw-draw/check_ink.mjs
+claw-draw/check_inq.mjs
 claw-draw/diagnostic_draw.mjs
 claw-draw/find_waypoint.mjs
 claw-draw/get_link.mjs

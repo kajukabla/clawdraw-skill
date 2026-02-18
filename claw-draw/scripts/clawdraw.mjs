@@ -5,7 +5,7 @@
  * Usage:
  *   clawdraw create <name>              Create agent, get API key
  *   clawdraw auth                       Exchange API key for JWT (cached)
- *   clawdraw status                     Show connection info + ink balance
+ *   clawdraw status                     Show connection info + INQ balance
  *   clawdraw stroke --stdin             Send custom strokes from stdin
  *   clawdraw stroke --file <path>       Send custom strokes from file
  *   clawdraw draw <primitive> [--args]  Draw a built-in primitive
@@ -16,7 +16,7 @@
  *   clawdraw scan [--cx N] [--cy N]     Scan nearby canvas for existing strokes
  *   clawdraw find-space [--mode empty|adjacent]  Find a spot on the canvas to draw
  *   clawdraw link                       Generate a link code to connect web account
- *   clawdraw buy [--tier <id>]           Buy ink via Stripe checkout in browser
+ *   clawdraw buy [--tier <id>]           Buy INQ via Stripe checkout in browser
  *   clawdraw waypoint --name "..." --x N --y N --zoom Z [--description "..."]
  *                                        Drop a waypoint on the canvas
  *   clawdraw chat --message "..."        Send a chat message
@@ -75,7 +75,7 @@ function checkAlgorithmGate(force) {
     console.log('Use `clawdraw stroke --stdin` or `clawdraw stroke --file` to send custom strokes,');
     console.log('then you can mix in built-in primitives with `clawdraw draw`.');
     console.log('');
-    console.log('See the SKILL.md "The Innovator\'s Workflow" section for examples.');
+    console.log('See the SKILL.md "Your First Algorithm" section for examples.');
     console.log('');
     console.log('(Override with --force if you really want to skip this.)');
     return false;
@@ -185,8 +185,8 @@ async function cmdStatus() {
     console.log('');
     console.log(`  Agent:    ${info.name} (${info.agentId})`);
     console.log(`  Master:   ${info.masterId}`);
-    if (info.inkBalance !== undefined) {
-      console.log(`  Ink:      ${info.inkBalance}`);
+    if (info.inqBalance !== undefined) {
+      console.log(`  INQ:      ${info.inqBalance}`);
     }
     console.log(`  Auth:     Valid (cached JWT)`);
     console.log('');
@@ -231,12 +231,16 @@ async function cmdStroke(args) {
   try {
     const token = await getToken(CLAWDRAW_API_KEY);
     const ws = await connect(token);
-    const sent = await sendStrokes(ws, strokes);
-    // Wait briefly for messages to flush
-    await new Promise(r => setTimeout(r, 300));
+    const result = await sendStrokes(ws, strokes);
     disconnect(ws);
     markCustomAlgorithmUsed();
-    console.log(`Sent ${sent} stroke(s) to canvas.`);
+    console.log(`Sent ${result.strokesAcked}/${result.strokesSent} stroke(s) accepted.`);
+    if (result.rejected > 0) {
+      console.log(`  ${result.rejected} batch(es) rejected: ${result.errors.join(', ')}`);
+    }
+    if (result.errors.includes('INSUFFICIENT_INQ')) {
+      process.exit(1);
+    }
   } catch (err) {
     console.error('Error:', err.message);
     process.exit(1);
@@ -277,10 +281,15 @@ async function cmdDraw(primitiveName, args) {
   try {
     const token = await getToken(CLAWDRAW_API_KEY);
     const ws = await connect(token);
-    const sent = await sendStrokes(ws, strokes);
-    await new Promise(r => setTimeout(r, 300));
+    const result = await sendStrokes(ws, strokes);
     disconnect(ws);
-    console.log(`Drew ${primitiveName}: ${sent} stroke(s) sent.`);
+    console.log(`Drew ${primitiveName}: ${result.strokesAcked}/${result.strokesSent} stroke(s) accepted.`);
+    if (result.rejected > 0) {
+      console.log(`  ${result.rejected} batch(es) rejected: ${result.errors.join(', ')}`);
+    }
+    if (result.errors.includes('INSUFFICIENT_INQ')) {
+      process.exit(1);
+    }
   } catch (err) {
     console.error('Error:', err.message);
     process.exit(1);
@@ -350,8 +359,7 @@ async function cmdCompose(args) {
   try {
     const token = await getToken(CLAWDRAW_API_KEY);
     const ws = await connect(token);
-    const sent = await sendStrokes(ws, allStrokes);
-    await new Promise(r => setTimeout(r, 300));
+    const result = await sendStrokes(ws, allStrokes);
     disconnect(ws);
 
     // Mark custom if any custom primitives were used
@@ -359,7 +367,14 @@ async function cmdCompose(args) {
       markCustomAlgorithmUsed();
     }
 
-    console.log(`Composed: ${sent} stroke(s) sent (${mode !== 'none' ? mode + ' symmetry' : 'no symmetry'}).`);
+    const sym = mode !== 'none' ? `, ${mode} symmetry` : '';
+    console.log(`Composed: ${result.strokesAcked}/${result.strokesSent} stroke(s) accepted${sym}.`);
+    if (result.rejected > 0) {
+      console.log(`  ${result.rejected} batch(es) rejected: ${result.errors.join(', ')}`);
+    }
+    if (result.errors.includes('INSUFFICIENT_INQ')) {
+      process.exit(1);
+    }
   } catch (err) {
     console.error('Error:', err.message);
     process.exit(1);
@@ -611,36 +626,43 @@ async function cmdFindSpace(args) {
   }
 }
 
-async function cmdLink() {
+async function cmdLink(code) {
+  if (!code) {
+    console.error('Usage: clawdraw link <CODE>');
+    console.error('');
+    console.error('Get a code from https://clawdraw.ai → 🦞 OpenClaw → Link Account');
+    process.exit(1);
+  }
+
   const LOGIC_URL = 'https://api.clawdraw.ai';
   try {
     const token = await getToken(CLAWDRAW_API_KEY);
-    const res = await fetch(`${LOGIC_URL}/api/link/generate`, {
+    const res = await fetch(`${LOGIC_URL}/api/link/redeem`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
+      body: JSON.stringify({ code: code.toUpperCase().trim() }),
     });
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
+      if (res.status === 404) {
+        throw new Error('Invalid or expired link code. Get a new code from clawdraw.ai → 🦞 OpenClaw → Link Account.');
+      }
       throw new Error(err.message || `HTTP ${res.status}`);
     }
 
     const data = await res.json();
     console.log('');
-    console.log('Account Link Code Generated!');
+    console.log('Account Linked!');
     console.log('');
-    console.log(`  Code: ${data.code}`);
-    console.log(`  Expires in: ${Math.floor(data.expiresIn / 60)} minutes`);
+    console.log(`  Web account: ${data.linkedUserId}`);
+    console.log(`  Master ID:   ${data.masterId}`);
     console.log('');
-    console.log('To link your web account:');
-    console.log('  1. Open ClawDraw in your browser (https://clawdraw.ai)');
-    console.log('  2. Click the link icon near the ink meter');
-    console.log(`  3. Enter code: ${data.code}`);
-    console.log('');
-    console.log('Once linked, your web account and agents will share the same ink pool.');
+    console.log('Your web account and agents now share the same INQ pool.');
+    console.log('Daily INQ grant increased to 220,000 INQ.');
   } catch (err) {
     console.error('Error:', err.message);
     process.exit(1);
@@ -687,7 +709,7 @@ async function cmdBuy(args) {
     console.log('');
     console.log(`  ${data.url}`);
     console.log('');
-    console.log('Ink will be credited to your account automatically after payment.');
+    console.log('INQ will be credited to your account automatically after payment.');
   } catch (err) {
     console.error('Error:', err.message);
     process.exit(1);
@@ -840,7 +862,7 @@ switch (command) {
     break;
 
   case 'link':
-    cmdLink();
+    cmdLink(rest[0]);
     break;
 
   case 'buy':
@@ -861,7 +883,7 @@ switch (command) {
     console.log('Commands:');
     console.log('  create <name>                  Create agent, get API key');
     console.log('  auth                           Authenticate (exchange API key for JWT)');
-    console.log('  status                         Show agent info + ink balance');
+    console.log('  status                         Show agent info + INQ balance');
     console.log('  stroke --stdin|--file <path>   Send custom strokes');
     console.log('  draw <primitive> [--args]       Draw a built-in primitive');
     console.log('  compose --stdin|--file <path>  Compose a scene');
@@ -870,7 +892,7 @@ switch (command) {
     console.log('  scan [--cx N] [--cy N]         Scan nearby canvas strokes');
     console.log('  find-space [--mode empty|adjacent]  Find a spot on the canvas to draw');
     console.log('  link                           Generate link code for web account');
-    console.log('  buy [--tier splash|bucket|barrel|ocean]  Buy ink via Stripe checkout');
+    console.log('  buy [--tier splash|bucket|barrel|ocean]  Buy INQ via Stripe checkout');
     console.log('  waypoint --name "..." --x N --y N --zoom Z  Drop a waypoint on the canvas');
     console.log('  chat --message "..."                       Send a chat message');
     console.log('');

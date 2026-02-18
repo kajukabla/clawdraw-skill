@@ -1,5 +1,5 @@
 /**
- * Primitive registry — auto-discovers built-in and community primitives.
+ * Primitive registry — static imports from all category folders.
  *
  * Usage:
  *   import { getPrimitive, listPrimitives, getPrimitiveInfo } from './index.mjs';
@@ -11,72 +11,127 @@
  *   const info = getPrimitiveInfo('fractalTree');
  */
 
-import { readdir } from 'node:fs/promises';
-import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-
 // ---------------------------------------------------------------------------
-// Built-in primitive imports
+// Built-in primitive imports (from category folders)
 // ---------------------------------------------------------------------------
 
-import * as basicShapes from './basic-shapes.mjs';
-import * as organic from './organic.mjs';
-import * as flowAbstract from './flow-abstract.mjs';
-import * as fills from './fills.mjs';
-import * as decorative from './decorative.mjs';
-import * as utility from './utility.mjs';
+import * as basicShapes from './shapes/basic-shapes.mjs';
+import * as organic from './organic/organic.mjs';
+import * as flowAbstract from './flow/flow-abstract.mjs';
+import * as fills from './fills/fills.mjs';
+import * as decorative from './decorative/decorative.mjs';
+import * as utility from './utility/utility.mjs';
 
+// ---------------------------------------------------------------------------
+// Community primitive imports (static — organized by category)
+// ---------------------------------------------------------------------------
+
+// shapes
+import * as hexGrid from './shapes/hex-grid.mjs';
+import * as gear from './shapes/gear.mjs';
+import * as schotter from './shapes/schotter.mjs';
+
+// organic
+import * as vineGrowth from './organic/vine-growth.mjs';
+import * as phyllotaxisSpiral from './organic/phyllotaxis-spiral.mjs';
+import * as lichenGrowth from './organic/lichen-growth.mjs';
+import * as slimeMold from './organic/slime-mold.mjs';
+import * as dla from './organic/dla.mjs';
+
+// fractals
+import * as mandelbrot from './fractals/mandelbrot.mjs';
+import * as juliaSet from './fractals/julia-set.mjs';
+import * as apollonianGasket from './fractals/apollonian-gasket.mjs';
+import * as dragonCurve from './fractals/dragon-curve.mjs';
+import * as kochSnowflake from './fractals/koch-snowflake.mjs';
+import * as sierpinskiTriangle from './fractals/sierpinski-triangle.mjs';
+import * as kaleidoscopicIfs from './fractals/kaleidoscopic-ifs.mjs';
+import * as penroseTiling from './fractals/penrose-tiling.mjs';
+import * as hyperbolicTiling from './fractals/hyperbolic-tiling.mjs';
+import * as viridisVortex from './fractals/viridis-vortex.mjs';
+
+// flow
+import * as cliffordAttractor from './flow/clifford-attractor.mjs';
+import * as hopalongAttractor from './flow/hopalong-attractor.mjs';
+import * as doublePendulum from './flow/double-pendulum.mjs';
+import * as orbitalDynamics from './flow/orbital-dynamics.mjs';
+import * as gielisSuperformula from './flow/gielis-superformula.mjs';
+
+// noise
+import * as voronoiNoise from './noise/voronoi-noise.mjs';
+import * as voronoiCrackle from './noise/voronoi-crackle.mjs';
+import * as voronoiGrid from './noise/voronoi-grid.mjs';
+import * as worleyNoise from './noise/worley-noise.mjs';
+import * as domainWarping from './noise/domain-warping.mjs';
+import * as turingPatterns from './noise/turing-patterns.mjs';
+import * as reactionDiffusion from './noise/reaction-diffusion.mjs';
+import * as grayScott from './noise/gray-scott.mjs';
+import * as metaballs from './noise/metaballs.mjs';
+
+// simulation
+import * as gameOfLife from './simulation/game-of-life.mjs';
+import * as langtonsAnt from './simulation/langtons-ant.mjs';
+import * as waveFunctionCollapse from './simulation/wave-function-collapse.mjs';
+
+// decorative (community)
+import * as starburst from './decorative/starburst.mjs';
+import * as clockworkNebula from './decorative/clockwork-nebula.mjs';
+import * as matrixRain from './decorative/matrix-rain.mjs';
+
+// 3d
+import * as cube3d from './3d/cube-3d.mjs';
+import * as sphere3d from './3d/sphere-3d.mjs';
+import * as hypercube from './3d/hypercube.mjs';
+
+// ---------------------------------------------------------------------------
+// Registry
+// ---------------------------------------------------------------------------
+
+// Normalize legacy category names to new folder names
+const CATEGORY_MAP = { 'basic-shapes': 'shapes', 'flow-abstract': 'flow' };
+
+// Built-in modules
 const builtinModules = [basicShapes, organic, flowAbstract, fills, decorative, utility];
+
+// Community modules grouped by target category
+const communityModules = [
+  { category: 'shapes', modules: [hexGrid, gear, schotter] },
+  { category: 'organic', modules: [vineGrowth, phyllotaxisSpiral, lichenGrowth, slimeMold, dla] },
+  { category: 'fractals', modules: [mandelbrot, juliaSet, apollonianGasket, dragonCurve, kochSnowflake, sierpinskiTriangle, kaleidoscopicIfs, penroseTiling, hyperbolicTiling, viridisVortex] },
+  { category: 'flow', modules: [cliffordAttractor, hopalongAttractor, doublePendulum, orbitalDynamics, gielisSuperformula] },
+  { category: 'noise', modules: [voronoiNoise, voronoiCrackle, voronoiGrid, worleyNoise, domainWarping, turingPatterns, reactionDiffusion, grayScott, metaballs] },
+  { category: 'simulation', modules: [gameOfLife, langtonsAnt, waveFunctionCollapse] },
+  { category: 'decorative', modules: [starburst, clockworkNebula, matrixRain] },
+  { category: '3d', modules: [cube3d, sphere3d, hypercube] },
+];
 
 /** @type {Map<string, { fn: Function, meta: object }>} */
 const registry = new Map();
 
-// Register all built-in primitives
+// Register built-in primitives (normalize category names)
 for (const mod of builtinModules) {
   if (!mod.METADATA) continue;
   const metaList = Array.isArray(mod.METADATA) ? mod.METADATA : [mod.METADATA];
   for (const meta of metaList) {
     const fn = mod[meta.name];
     if (typeof fn === 'function') {
-      registry.set(meta.name, { fn, meta });
+      const category = CATEGORY_MAP[meta.category] || meta.category;
+      registry.set(meta.name, { fn, meta: { ...meta, category } });
     }
   }
 }
 
-// ---------------------------------------------------------------------------
-// Community primitive auto-discovery
-// ---------------------------------------------------------------------------
-
-let communityLoaded = false;
-
-async function loadCommunityPrimitives() {
-  if (communityLoaded) return;
-  communityLoaded = true;
-
-  const communityDir = join(__dirname, '..', 'community');
-  try {
-    const files = await readdir(communityDir);
-    for (const file of files) {
-      if (!file.endsWith('.mjs') || file.startsWith('_')) continue;
-      try {
-        const mod = await import(join(communityDir, file));
-        if (mod.METADATA) {
-          const metaList = Array.isArray(mod.METADATA) ? mod.METADATA : [mod.METADATA];
-          for (const meta of metaList) {
-            const fn = mod[meta.name];
-            if (typeof fn === 'function') {
-              registry.set(meta.name, { fn, meta: { ...meta, source: 'community', file } });
-            }
-          }
-        }
-      } catch (err) {
-        console.error(`Warning: Failed to load community primitive ${file}: ${err.message}`);
+// Register community primitives with correct category + source
+for (const { category, modules } of communityModules) {
+  for (const mod of modules) {
+    if (!mod.METADATA) continue;
+    const metaList = Array.isArray(mod.METADATA) ? mod.METADATA : [mod.METADATA];
+    for (const meta of metaList) {
+      const fn = mod[meta.name];
+      if (typeof fn === 'function') {
+        registry.set(meta.name, { fn, meta: { ...meta, category, source: 'community' } });
       }
     }
-  } catch {
-    // community/ dir doesn't exist or isn't readable — that's fine
   }
 }
 
@@ -99,10 +154,9 @@ export function getPrimitive(name) {
  * @param {object} [opts]
  * @param {string} [opts.category] - Filter by category
  * @param {boolean} [opts.includeCommunity=true] - Include community primitives
- * @returns {Promise<Array<{name: string, description: string, category: string}>>}
+ * @returns {Array<{name: string, description: string, category: string}>}
  */
-export async function listPrimitives(opts = {}) {
-  await loadCommunityPrimitives();
+export function listPrimitives(opts = {}) {
   const results = [];
   for (const [name, { meta }] of registry) {
     if (opts.category && meta.category !== opts.category) continue;
@@ -120,10 +174,9 @@ export async function listPrimitives(opts = {}) {
 /**
  * Get detailed info about a specific primitive.
  * @param {string} name - Primitive name
- * @returns {Promise<object|null>} Full metadata including parameters, or null
+ * @returns {object|null} Full metadata including parameters, or null
  */
-export async function getPrimitiveInfo(name) {
-  await loadCommunityPrimitives();
+export function getPrimitiveInfo(name) {
   const entry = registry.get(name);
   if (!entry) return null;
   return { ...entry.meta, source: entry.meta.source || 'builtin' };
@@ -146,9 +199,9 @@ export function executePrimitive(name, args) {
 }
 
 // Re-export all primitive functions for direct import
-export { circle, ellipse, arc, rectangle, polygon, star } from './basic-shapes.mjs';
-export { lSystem, flower, leaf, vine, spaceColonization, mycelium, barnsleyFern } from './organic.mjs';
-export { flowField, spiral, lissajous, strangeAttractor, spirograph } from './flow-abstract.mjs';
-export { hatchFill, crossHatch, stipple, gradientFill, colorWash, solidFill } from './fills.mjs';
-export { border, mandala, fractalTree, radialSymmetry, sacredGeometry } from './decorative.mjs';
-export { bezierCurve, dashedLine, arrow, strokeText, alienGlyphs } from './utility.mjs';
+export { circle, ellipse, arc, rectangle, polygon, star } from './shapes/basic-shapes.mjs';
+export { lSystem, flower, leaf, vine, spaceColonization, mycelium, barnsleyFern } from './organic/organic.mjs';
+export { flowField, spiral, lissajous, strangeAttractor, spirograph } from './flow/flow-abstract.mjs';
+export { hatchFill, crossHatch, stipple, gradientFill, colorWash, solidFill } from './fills/fills.mjs';
+export { border, mandala, fractalTree, radialSymmetry, sacredGeometry } from './decorative/decorative.mjs';
+export { bezierCurve, dashedLine, arrow, strokeText, alienGlyphs } from './utility/utility.mjs';

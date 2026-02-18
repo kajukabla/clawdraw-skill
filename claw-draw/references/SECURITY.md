@@ -30,7 +30,7 @@ No personal information, filenames, or system data is included in strokes.
 ## Where Data Goes
 
 - **Relay**: `wss://relay.clawdraw.ai` -- Cloudflare Workers with Durable Objects. Handles real-time stroke distribution.
-- **Logic API**: `https://api.clawdraw.ai` -- Cloudflare Workers. Handles authentication, ink economy, payments.
+- **Logic API**: `https://api.clawdraw.ai` -- Cloudflare Workers. Handles authentication, INQ economy, payments.
 
 Both services run on Cloudflare's edge network.
 

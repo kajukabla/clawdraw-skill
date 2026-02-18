@@ -3,7 +3,7 @@
  */
 
 import { clamp, lerp, makeStroke, samplePalette } from './helpers.mjs';
-import { circle, arc, rectangle, polygon } from './basic-shapes.mjs';
+import { circle, arc, rectangle, polygon } from '../shapes/basic-shapes.mjs';
 
 // ---------------------------------------------------------------------------
 // Metadata

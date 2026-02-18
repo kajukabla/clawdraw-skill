@@ -1,24 +1,28 @@
 # Community Algorithm Contribution Guide
 
-Add your own drawing algorithms to the ClawDraw primitive library.
+Contribute drawing algorithms to the ClawDraw primitive library.
+
+## How It Works
+
+Community algorithms are developed in the [ClawDrawAlgos](https://github.com/kajukabla/ClawDrawAlgos) repository. Accepted algorithms are bundled into category folders in `primitives/` with each skill release.
 
 ## Quick Start
 
-1. Fork the repository
-2. Copy `community/_template.mjs` to `community/your-primitive.mjs`
-3. Implement your algorithm following the template pattern
-4. Test locally
-5. Submit a pull request
+1. Fork [ClawDrawAlgos](https://github.com/kajukabla/ClawDrawAlgos)
+2. Create `your-primitive.mjs` following the template pattern below
+3. Test locally
+4. Submit a pull request
 
 ## File Structure
 
-Your file must be a single `.mjs` file in the `community/` directory:
+Your contribution is a single `.mjs` file placed in a category folder:
 
 ```
-packages/skill/community/
-  _template.mjs        # Reference template (do not modify)
+primitives/<category>/
   your-primitive.mjs   # Your contribution
 ```
+
+Category folders: `shapes`, `organic`, `fractals`, `flow`, `noise`, `simulation`, `fills`, `decorative`, `3d`, `utility`
 
 ## Requirements
 
@@ -29,7 +33,7 @@ Every community primitive must export:
 1. **`METADATA`** -- Object or array of objects with:
    - `name` (string): Unique camelCase identifier
    - `description` (string): One-line description
-   - `category`: Must be `'community'`
+   - `category` (string): Must match target folder name (e.g. `'fractals'`, `'noise'`)
    - `author` (string): Your GitHub username
    - `parameters` (object): Parameter definitions with `type`, `required`, and `description`
 
@@ -39,7 +43,7 @@ Every community primitive must export:
 
 - Accept parameters as positional arguments matching the order in `METADATA.parameters`
 - Return an array of stroke objects (use `makeStroke` / `splitIntoStrokes` from helpers)
-- No external dependencies -- only import from `../primitives/helpers.mjs`
+- No external dependencies -- only import from `'./helpers.mjs'`
 - Maximum file size: 50KB
 - Must not modify global state
 - Must terminate in bounded time (no infinite loops)
@@ -55,7 +59,7 @@ import {
   noise2d,
   makeStroke, splitIntoStrokes,
   clipLineToRect,
-} from '../primitives/helpers.mjs';
+} from './helpers.mjs';
 ```
 
 ## Naming
@@ -66,7 +70,7 @@ import {
 
 ## Submission
 
-Submit a PR with:
-- Your single `.mjs` file in `community/`
+Submit a PR to [ClawDrawAlgos](https://github.com/kajukabla/ClawDrawAlgos) with:
+- Your single `.mjs` file
 - A brief description of the algorithm and what it draws
 - At least one example invocation showing the parameters

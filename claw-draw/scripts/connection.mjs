@@ -6,7 +6,8 @@
  *   import { connect, sendStrokes, addWaypoint, getWaypointUrl, disconnect } from './connection.mjs';
  *
  *   const ws = await connect(token);
- *   await sendStrokes(ws, strokes, { waitForAcks: true });
+ *   const result = await sendStrokes(ws, strokes);
+ *   console.log(`${result.strokesAcked}/${result.strokesSent} accepted`);
  *   const wp = await addWaypoint(ws, { name: 'My Spot', x: 0, y: 0, zoom: 1 });
  *   console.log(getWaypointUrl(wp));
  *   disconnect(ws);
@@ -103,19 +104,76 @@ export function connect(token, opts = {}) {
 /** Maximum strokes per batch message. */
 export const BATCH_SIZE = 100;
 
+/** Max retries per batch on RATE_LIMITED. */
+const BATCH_MAX_RETRIES = 5;
+/** Base backoff delay (ms) for rate-limit retries. */
+const RATE_LIMIT_BASE_MS = 200;
+/** Timeout (ms) waiting for ack/error per batch. */
+const BATCH_ACK_TIMEOUT_MS = 5000;
+
+/**
+ * @typedef {Object} SendResult
+ * @property {number} sent       - Batches transmitted
+ * @property {number} acked      - Batches acknowledged by server
+ * @property {number} rejected   - Batches rejected (after all retries exhausted)
+ * @property {string[]} errors   - Error codes/messages for rejected batches
+ * @property {number} strokesSent  - Total individual strokes transmitted
+ * @property {number} strokesAcked - Total individual strokes acknowledged
+ */
+
+/**
+ * Wait for a single ack or sync.error from the relay.
+ * Resolves with { type: 'ack' } on stroke.ack/strokes.ack,
+ * { type: 'error', code, message } on sync.error,
+ * or { type: 'timeout' } after BATCH_ACK_TIMEOUT_MS.
+ *
+ * @param {WebSocket} ws
+ * @returns {Promise<{type: string, code?: string, message?: string}>}
+ */
+function waitForBatchResponse(ws) {
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => {
+      ws.removeListener('message', handler);
+      resolve({ type: 'timeout' });
+    }, BATCH_ACK_TIMEOUT_MS);
+
+    function handler(data) {
+      try {
+        const parsed = JSON.parse(data.toString());
+        const msgs = Array.isArray(parsed) ? parsed : [parsed];
+        for (const msg of msgs) {
+          if (msg.type === 'stroke.ack' || msg.type === 'strokes.ack') {
+            clearTimeout(timeout);
+            ws.removeListener('message', handler);
+            resolve({ type: 'ack' });
+            return;
+          }
+          if (msg.type === 'sync.error') {
+            clearTimeout(timeout);
+            ws.removeListener('message', handler);
+            resolve({ type: 'error', code: msg.code || 'UNKNOWN', message: msg.message || '' });
+            return;
+          }
+        }
+      } catch { /* ignore non-JSON frames */ }
+    }
+
+    ws.on('message', handler);
+  });
+}
+
 /**
  * Send an array of strokes to the relay, batched for efficiency.
- * Groups strokes into batches of up to BATCH_SIZE and sends each as
- * a single `strokes.add` message.
+ * Always waits for ack/error per batch. On RATE_LIMITED, retries with
+ * exponential backoff. On INSUFFICIENT_INQ, stops immediately.
  *
  * @param {WebSocket} ws - Connected WebSocket
  * @param {Array} strokes - Array of stroke objects (from helpers.mjs makeStroke)
  * @param {object|number} [optsOrDelay={}] - Options object or legacy delayMs number
- * @param {number} [optsOrDelay.delayMs=50] - Milliseconds between batch sends
+ * @param {number} [optsOrDelay.delayMs=50] - Milliseconds between successful batch sends
  * @param {number} [optsOrDelay.batchSize=100] - Max strokes per batch
  * @param {boolean} [optsOrDelay.legacy=false] - Use single stroke.add per stroke
- * @param {boolean} [optsOrDelay.waitForAcks=false] - Wait for stroke.ack/strokes.ack before returning
- * @returns {Promise<number|{sent: number, acked: number}>} Number of strokes sent (or {sent, acked} when waitForAcks)
+ * @returns {Promise<SendResult>}
  */
 export async function sendStrokes(ws, strokes, optsOrDelay = {}) {
   // Support legacy call signature: sendStrokes(ws, strokes, 50)
@@ -126,76 +184,89 @@ export async function sendStrokes(ws, strokes, optsOrDelay = {}) {
   const delayMs = opts.delayMs ?? 50;
   const batchSize = opts.batchSize ?? BATCH_SIZE;
   const legacy = opts.legacy ?? false;
-  const waitForAcks = opts.waitForAcks ?? false;
 
-  let sent = 0;
-  let expectedAcks = 0;
+  const result = { sent: 0, acked: 0, rejected: 0, errors: [], strokesSent: 0, strokesAcked: 0 };
 
+  if (strokes.length === 0) return result;
+
+  // Build batches
+  const batches = [];
   if (legacy) {
-    // Legacy mode: one stroke.add per stroke
     for (const stroke of strokes) {
-      if (ws.readyState !== WebSocket.OPEN) {
-        console.warn(`[connection] WebSocket not open, sent ${sent}/${strokes.length}`);
-        break;
-      }
-      ws.send(JSON.stringify({ type: 'stroke.add', stroke }));
-      sent++;
-      expectedAcks++;
-      if (sent < strokes.length && delayMs > 0) {
-        await sleep(delayMs);
-      }
+      batches.push({ msg: { type: 'stroke.add', stroke }, count: 1 });
     }
   } else {
-    // Batched mode: group into strokes.add messages
     for (let i = 0; i < strokes.length; i += batchSize) {
-      if (ws.readyState !== WebSocket.OPEN) {
-        console.warn(`[connection] WebSocket not open, sent ${sent}/${strokes.length}`);
-        break;
-      }
       const batch = strokes.slice(i, i + batchSize);
-      ws.send(JSON.stringify({ type: 'strokes.add', strokes: batch }));
-      sent += batch.length;
-      expectedAcks++;
-      if (i + batchSize < strokes.length && delayMs > 0) {
-        await sleep(delayMs);
+      batches.push({ msg: { type: 'strokes.add', strokes: batch }, count: batch.length });
+    }
+  }
+
+  for (let bi = 0; bi < batches.length; bi++) {
+    const { msg, count } = batches[bi];
+    let accepted = false;
+    let retries = 0;
+
+    while (!accepted && retries <= BATCH_MAX_RETRIES) {
+      if (ws.readyState !== WebSocket.OPEN) {
+        console.warn(`[connection] WebSocket not open, stopping at batch ${bi + 1}/${batches.length}`);
+        // Count remaining batches as rejected
+        for (let r = bi; r < batches.length; r++) {
+          result.rejected++;
+          result.errors.push('WS_CLOSED');
+        }
+        return result;
+      }
+
+      ws.send(JSON.stringify(msg));
+      result.sent++;
+      result.strokesSent += count;
+
+      const resp = await waitForBatchResponse(ws);
+
+      if (resp.type === 'ack') {
+        accepted = true;
+        result.acked++;
+        result.strokesAcked += count;
+      } else if (resp.type === 'error') {
+        if (resp.code === 'RATE_LIMITED') {
+          retries++;
+          if (retries > BATCH_MAX_RETRIES) {
+            result.rejected++;
+            result.errors.push(`RATE_LIMITED (${BATCH_MAX_RETRIES} retries exhausted)`);
+            console.warn(`[connection] Batch ${bi + 1} rate-limited after ${BATCH_MAX_RETRIES} retries, skipping`);
+          } else {
+            const backoff = RATE_LIMIT_BASE_MS * Math.pow(2, retries - 1);
+            console.warn(`[connection] Rate limited, retry ${retries}/${BATCH_MAX_RETRIES} in ${backoff}ms`);
+            await sleep(backoff);
+          }
+        } else if (resp.code === 'INSUFFICIENT_INQ') {
+          result.rejected++;
+          result.errors.push('INSUFFICIENT_INQ');
+          console.warn(`[connection] Insufficient INQ, stopping send`);
+          // Don't count remaining batches as rejected — we just stop
+          return result;
+        } else {
+          // STROKE_TOO_LARGE, BATCH_FAILED, BANNED, etc — skip batch
+          result.rejected++;
+          result.errors.push(resp.code);
+          console.warn(`[connection] Batch ${bi + 1} rejected: ${resp.code} — ${resp.message}`);
+          accepted = true; // move on
+        }
+      } else {
+        // timeout — treat as lost, move on
+        console.warn(`[connection] Batch ${bi + 1} timed out (no ack/error in ${BATCH_ACK_TIMEOUT_MS}ms)`);
+        accepted = true; // move on
       }
     }
-  }
 
-  if (!waitForAcks || expectedAcks === 0) {
-    return waitForAcks ? { sent, acked: 0 } : sent;
-  }
-
-  // Wait for ack messages
-  const acked = await new Promise((resolve) => {
-    let ackCount = 0;
-    const timeout = setTimeout(() => {
-      ws.removeListener('message', handler);
-      resolve(ackCount);
-    }, 10000);
-
-    function handler(data) {
-      try {
-        const parsed = JSON.parse(data.toString());
-        const msgs = Array.isArray(parsed) ? parsed : [parsed];
-        for (const msg of msgs) {
-          if (msg.type === 'stroke.ack' || msg.type === 'strokes.ack') {
-            ackCount++;
-            if (ackCount >= expectedAcks) {
-              clearTimeout(timeout);
-              ws.removeListener('message', handler);
-              resolve(ackCount);
-              return;
-            }
-          }
-        }
-      } catch { /* ignore */ }
+    // Inter-batch pacing (only between successful batches, not after the last)
+    if (accepted && bi < batches.length - 1 && delayMs > 0) {
+      await sleep(delayMs);
     }
+  }
 
-    ws.on('message', handler);
-  });
-
-  return { sent, acked };
+  return result;
 }
 
 /**

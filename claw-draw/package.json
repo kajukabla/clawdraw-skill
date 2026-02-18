@@ -36,7 +36,6 @@
     "scripts/connection.mjs",
     "scripts/symmetry.mjs",
     "primitives/",
-    "community/",
     "references/",
     "SKILL.md",
     "README.md"

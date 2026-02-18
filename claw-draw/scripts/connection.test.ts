@@ -1,5 +1,5 @@
 /**
- * Tests for connection.mjs — addWaypoint, getWaypointUrl, sendStrokes (waitForAcks).
+ * Tests for connection.mjs — addWaypoint, getWaypointUrl, sendStrokes (rate-aware).
  *
  * Uses a lightweight MockWs that mimics the 'ws' WebSocket API surface
  * used by connection.mjs (on, removeListener, send, readyState).
@@ -15,25 +15,37 @@ class MockWs {
   static OPEN = 1;
   static CLOSED = 3;
 
+  readyState: number;
+  _listeners: Record<string, Function[]>;
+  sent: any[];
+  _presenceHeartbeat: ReturnType<typeof setInterval> | null;
+  _autoRespond: ((msg: any) => void) | null;
+
   constructor() {
     this.readyState = MockWs.OPEN;
     this._listeners = {};
     this.sent = [];
+    this._presenceHeartbeat = null;
+    this._autoRespond = null;
   }
 
-  on(event, handler) {
+  on(event: string, handler: Function) {
     if (!this._listeners[event]) this._listeners[event] = [];
     this._listeners[event].push(handler);
   }
 
-  removeListener(event, handler) {
+  removeListener(event: string, handler: Function) {
     const arr = this._listeners[event];
     if (!arr) return;
     this._listeners[event] = arr.filter(h => h !== handler);
   }
 
-  send(data) {
-    this.sent.push(JSON.parse(data));
+  send(data: string) {
+    const parsed = JSON.parse(data);
+    this.sent.push(parsed);
+    if (this._autoRespond) {
+      this._autoRespond(parsed);
+    }
   }
 
   close() {
@@ -41,7 +53,7 @@ class MockWs {
   }
 
   // Test helper: simulate receiving a message
-  _receive(obj) {
+  _receive(obj: any) {
     const data = Buffer.from(JSON.stringify(obj));
     for (const handler of (this._listeners.message || [])) {
       handler(data);
@@ -65,7 +77,7 @@ const { addWaypoint, getWaypointUrl, sendStrokes, connect, disconnect } = await 
 // ---------------------------------------------------------------------------
 
 describe('addWaypoint', () => {
-  let ws;
+  let ws: MockWs;
 
   beforeEach(() => {
     vi.useFakeTimers();
@@ -170,8 +182,8 @@ describe('getWaypointUrl', () => {
   });
 });
 
-describe('sendStrokes with waitForAcks', () => {
-  let ws;
+describe('sendStrokes (rate-aware)', () => {
+  let ws: MockWs;
 
   beforeEach(() => {
     vi.useFakeTimers();
@@ -182,64 +194,171 @@ describe('sendStrokes with waitForAcks', () => {
     vi.useRealTimers();
   });
 
-  it('should return plain number when waitForAcks is false (default)', async () => {
-    const result = await sendStrokes(ws, [{ id: 's1' }]);
-    expect(result).toBe(1);
+  it('should return SendResult with all fields for empty array', async () => {
+    const result = await sendStrokes(ws, []);
+    expect(result).toEqual({
+      sent: 0, acked: 0, rejected: 0, errors: [],
+      strokesSent: 0, strokesAcked: 0,
+    });
   });
 
-  it('should return { sent, acked } when waitForAcks is true', async () => {
-    const p = sendStrokes(ws, [{ id: 's1' }], { waitForAcks: true });
+  it('should return SendResult on successful ack', async () => {
+    const p = sendStrokes(ws, [{ id: 's1' }], { delayMs: 0 });
 
     // Simulate ack
     ws._receive({ type: 'strokes.ack' });
     const result = await p;
 
-    expect(result).toEqual({ sent: 1, acked: 1 });
+    expect(result).toEqual({
+      sent: 1, acked: 1, rejected: 0, errors: [],
+      strokesSent: 1, strokesAcked: 1,
+    });
   });
 
-  it('should count acks for multiple batches', async () => {
-    // 3 strokes with batchSize=1 → 3 batches → expect 3 acks
-    const strokes = [{ id: 's1' }, { id: 's2' }, { id: 's3' }];
-    const p = sendStrokes(ws, strokes, { waitForAcks: true, batchSize: 1, delayMs: 0 });
+  it('should count stroke-level totals across multiple batches', async () => {
+    // Auto-ack every strokes.add
+    ws._autoRespond = (msg) => {
+      if (msg.type === 'strokes.add' || msg.type === 'stroke.add') {
+        queueMicrotask(() => ws._receive({ type: 'strokes.ack' }));
+      }
+    };
 
-    ws._receive({ type: 'strokes.ack' });
-    ws._receive({ type: 'strokes.ack' });
-    ws._receive({ type: 'strokes.ack' });
+    // 5 strokes with batchSize=2 → 3 batches (2+2+1)
+    const strokes = Array.from({ length: 5 }, (_, i) => ({ id: `s${i}` }));
+    const result = await sendStrokes(ws, strokes, { batchSize: 2, delayMs: 0 });
 
-    const result = await p;
-    expect(result).toEqual({ sent: 3, acked: 3 });
+    expect(result.sent).toBe(3);           // 3 batches sent
+    expect(result.acked).toBe(3);           // 3 batches acked
+    expect(result.strokesSent).toBe(5);     // 5 individual strokes
+    expect(result.strokesAcked).toBe(5);    // 5 individual strokes acked
+    expect(result.rejected).toBe(0);
   });
 
   it('should accept stroke.ack (singular) in legacy mode', async () => {
-    const p = sendStrokes(ws, [{ id: 's1' }], { waitForAcks: true, legacy: true });
+    const p = sendStrokes(ws, [{ id: 's1' }], { legacy: true, delayMs: 0 });
 
     ws._receive({ type: 'stroke.ack' });
     const result = await p;
 
-    expect(result).toEqual({ sent: 1, acked: 1 });
+    expect(result.acked).toBe(1);
+    expect(result.strokesAcked).toBe(1);
   });
 
-  it('should resolve with partial acks on timeout', async () => {
-    const strokes = [{ id: 's1' }, { id: 's2' }];
-    const p = sendStrokes(ws, strokes, { waitForAcks: true, batchSize: 1, delayMs: 0 });
+  it('should retry on RATE_LIMITED with backoff', async () => {
+    const p = sendStrokes(ws, [{ id: 's1' }], { delayMs: 0 });
 
-    // Only 1 of 2 expected acks arrives
+    // First attempt: rate limited
+    ws._receive({ type: 'sync.error', code: 'RATE_LIMITED', message: 'Too many points per second' });
+
+    // Advance past backoff (200ms for first retry)
+    await vi.advanceTimersByTimeAsync(200);
+
+    // Second attempt: success
     ws._receive({ type: 'strokes.ack' });
 
-    // Advance past 10s timeout
-    vi.advanceTimersByTime(10000);
-
     const result = await p;
-    expect(result).toEqual({ sent: 2, acked: 1 });
+    expect(result.sent).toBe(2);            // sent twice (original + retry)
+    expect(result.acked).toBe(1);           // acked once
+    expect(result.rejected).toBe(0);        // not rejected (retry succeeded)
+    expect(result.strokesSent).toBe(2);     // stroke transmitted twice
+    expect(result.strokesAcked).toBe(1);    // stroke acked once
   });
 
-  it('should return { sent: 0, acked: 0 } for empty strokes array', async () => {
-    const result = await sendStrokes(ws, [], { waitForAcks: true });
-    expect(result).toEqual({ sent: 0, acked: 0 });
+  it('should exhaust retries on persistent RATE_LIMITED', async () => {
+    const p = sendStrokes(ws, [{ id: 's1' }], { delayMs: 0 });
+
+    // Send RATE_LIMITED for each attempt (1 original + 5 retries = 6 total)
+    for (let i = 0; i < 6; i++) {
+      ws._receive({ type: 'sync.error', code: 'RATE_LIMITED', message: 'Too many points per second' });
+      // Advance past backoff: 200, 400, 800, 1600, 3200
+      if (i < 5) {
+        await vi.advanceTimersByTimeAsync(200 * Math.pow(2, i));
+      }
+    }
+
+    const result = await p;
+    expect(result.acked).toBe(0);
+    expect(result.rejected).toBe(1);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toContain('RATE_LIMITED');
+  });
+
+  it('should stop immediately on INSUFFICIENT_INQ', async () => {
+    // 3 batches, second one gets INSUFFICIENT_INQ
+    let batchCount = 0;
+    ws._autoRespond = (msg) => {
+      if (msg.type === 'strokes.add' || msg.type === 'stroke.add') {
+        batchCount++;
+        if (batchCount === 1) {
+          queueMicrotask(() => ws._receive({ type: 'strokes.ack' }));
+        } else {
+          queueMicrotask(() => ws._receive({ type: 'sync.error', code: 'INSUFFICIENT_INQ', message: 'Not enough INQ' }));
+        }
+      }
+    };
+
+    const strokes = [{ id: 's1' }, { id: 's2' }, { id: 's3' }];
+    const result = await sendStrokes(ws, strokes, { batchSize: 1, delayMs: 0 });
+
+    expect(result.acked).toBe(1);
+    expect(result.rejected).toBe(1);
+    expect(result.errors).toContain('INSUFFICIENT_INQ');
+    // Third batch was never sent (early stop)
+    expect(result.strokesSent).toBe(2);
+  });
+
+  it('should skip batch on STROKE_TOO_LARGE and continue', async () => {
+    let batchCount = 0;
+    ws._autoRespond = (msg) => {
+      if (msg.type === 'strokes.add' || msg.type === 'stroke.add') {
+        batchCount++;
+        if (batchCount === 1) {
+          queueMicrotask(() => ws._receive({ type: 'sync.error', code: 'STROKE_TOO_LARGE', message: 'Stroke spans too many chunks' }));
+        } else {
+          queueMicrotask(() => ws._receive({ type: 'strokes.ack' }));
+        }
+      }
+    };
+
+    const strokes = [{ id: 's1' }, { id: 's2' }];
+    const result = await sendStrokes(ws, strokes, { batchSize: 1, delayMs: 0 });
+
+    expect(result.acked).toBe(1);
+    expect(result.rejected).toBe(1);
+    expect(result.errors).toContain('STROKE_TOO_LARGE');
+    expect(result.strokesSent).toBe(2);
+    expect(result.strokesAcked).toBe(1);
+  });
+
+  it('should handle timeout (no ack/error) and continue', async () => {
+    const strokes = [{ id: 's1' }, { id: 's2' }];
+    const p = sendStrokes(ws, strokes, { batchSize: 1, delayMs: 0 });
+
+    // First batch: no response → timeout after 5s
+    await vi.advanceTimersByTimeAsync(5000);
+    // Second batch: acked
+    ws._receive({ type: 'strokes.ack' });
+
+    const result = await p;
+    // Timeout batch counts as sent but not acked or rejected
+    expect(result.sent).toBe(2);
+    expect(result.acked).toBe(1);
+    expect(result.rejected).toBe(0);
+  });
+
+  it('should handle WS closed mid-send', async () => {
+    const strokes = [{ id: 's1' }, { id: 's2' }];
+    // Close WS before sending
+    ws.readyState = MockWs.CLOSED;
+
+    const result = await sendStrokes(ws, strokes, { batchSize: 1, delayMs: 0 });
+    expect(result.sent).toBe(0);
+    expect(result.rejected).toBe(2);
+    expect(result.errors).toEqual(['WS_CLOSED', 'WS_CLOSED']);
   });
 
   it('should handle array-wrapped ack messages', async () => {
-    const p = sendStrokes(ws, [{ id: 's1' }], { waitForAcks: true });
+    const p = sendStrokes(ws, [{ id: 's1' }], { delayMs: 0 });
 
     // Server wraps response in array
     const data = Buffer.from(JSON.stringify([{ type: 'strokes.ack' }]));
@@ -248,11 +367,11 @@ describe('sendStrokes with waitForAcks', () => {
     }
 
     const result = await p;
-    expect(result).toEqual({ sent: 1, acked: 1 });
+    expect(result.acked).toBe(1);
   });
 
-  it('should clean up listener after all acks received', async () => {
-    const p = sendStrokes(ws, [{ id: 's1' }], { waitForAcks: true });
+  it('should clean up listener after ack received', async () => {
+    const p = sendStrokes(ws, [{ id: 's1' }], { delayMs: 0 });
     const listenersBefore = (ws._listeners.message || []).length;
 
     ws._receive({ type: 'strokes.ack' });
@@ -261,10 +380,38 @@ describe('sendStrokes with waitForAcks', () => {
     const listenersAfter = (ws._listeners.message || []).length;
     expect(listenersAfter).toBeLessThan(listenersBefore);
   });
+
+  it('should support legacy numeric delay argument', async () => {
+    const p = sendStrokes(ws, [{ id: 's1' }], 0);
+    ws._receive({ type: 'strokes.ack' });
+    const result = await p;
+    expect(result.acked).toBe(1);
+  });
+
+  it('should handle BATCH_FAILED error and continue', async () => {
+    let batchCount = 0;
+    ws._autoRespond = (msg) => {
+      if (msg.type === 'strokes.add' || msg.type === 'stroke.add') {
+        batchCount++;
+        if (batchCount === 1) {
+          queueMicrotask(() => ws._receive({ type: 'sync.error', code: 'BATCH_FAILED', message: 'Batch delivery failed, INQ refunded' }));
+        } else {
+          queueMicrotask(() => ws._receive({ type: 'strokes.ack' }));
+        }
+      }
+    };
+
+    const strokes = [{ id: 's1' }, { id: 's2' }];
+    const result = await sendStrokes(ws, strokes, { batchSize: 1, delayMs: 0 });
+
+    expect(result.acked).toBe(1);
+    expect(result.rejected).toBe(1);
+    expect(result.errors).toContain('BATCH_FAILED');
+  });
 });
 
 describe('presence heartbeat', () => {
-  let ws;
+  let ws: MockWs;
 
   beforeEach(() => {
     vi.useFakeTimers();

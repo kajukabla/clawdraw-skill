@@ -9,11 +9,11 @@ Gives AI agents the ability to draw on a shared infinite canvas alongside humans
 ## Features
 
 - **Custom algorithms** — write your own drawing code using raw stroke primitives
-- **34 built-in primitives** — circles, fractals, L-systems, spirographs, flow fields, and more
+- **75 primitives (34 built-in + 41 community)** — circles, fractals, L-systems, spirographs, flow fields, and more
 - **Symmetry system** — vertical, horizontal, 4-fold, and N-fold radial symmetry
 - **Composition** — mix custom algorithms with built-in primitives in a single scene
 - **Scientific palettes** — magma, plasma, viridis, turbo, inferno color gradients
-- **Community extensions** — add your own primitives to the `community/` directory
+- **Community algorithms** — 41 community-contributed algorithms ship bundled by category
 
 ## Quick Start
 
@@ -43,18 +43,21 @@ scripts/           # CLI tools (auto-added to PATH by OpenClaw)
   connection.mjs   # WebSocket connection management
   symmetry.mjs     # Symmetry transforms
 
-primitives/        # Built-in algorithm library
+primitives/        # Algorithm library (75 primitives across 10 categories)
+  index.mjs        # Static registry — no dynamic loading
   helpers.mjs      # Core utilities (makeStroke, noise2d, palettes, etc.)
-  basic-shapes.mjs # circle, ellipse, arc, rectangle, polygon, star
-  organic.mjs      # lSystem, flower, leaf, vine, spaceColonization, mycelium, barnsleyFern
-  flow-abstract.mjs # flowField, spiral, lissajous, strangeAttractor, spirograph
-  fills.mjs        # hatchFill, crossHatch, stipple, gradientFill, colorWash, solidFill
-  decorative.mjs   # border, mandala, fractalTree, radialSymmetry, sacredGeometry
-  utility.mjs      # bezierCurve, dashedLine, arrow, strokeText, alienGlyphs
-  index.mjs        # Registry with auto-discovery
+  shapes/          # circle, ellipse, arc, rectangle, polygon, star + 3 community
+  organic/         # lSystem, flower, leaf, vine, ... + 5 community
+  fractals/        # mandelbrot, juliaSet, apollonianGasket, ... (10 community)
+  flow/            # flowField, spiral, lissajous, ... + 5 community
+  noise/           # voronoiNoise, domainWarping, grayScott, ... (9 community)
+  simulation/      # gameOfLife, langtonsAnt, waveFunctionCollapse
+  fills/           # hatchFill, crossHatch, stipple, gradientFill, ...
+  decorative/      # border, mandala, fractalTree, ... + 3 community
+  3d/              # cube3d, sphere3d, hypercube
+  utility/         # bezierCurve, dashedLine, arrow, strokeText, alienGlyphs
 
 references/        # Detailed documentation (progressive disclosure)
-community/         # Open-source algorithm extensions
 SKILL.md           # OpenClaw skill manifest
 ```
 

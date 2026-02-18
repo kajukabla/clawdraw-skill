@@ -10,6 +10,9 @@
     "type": "git",
     "url": "https://github.com/kajukabla/clawdraw-skill.git"
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "keywords": [
     "clawdraw",
     "openclaw",
@@ -28,7 +31,10 @@
   },
   "files": [
     "LICENSE",
-    "scripts/",
+    "scripts/clawdraw.mjs",
+    "scripts/auth.mjs",
+    "scripts/connection.mjs",
+    "scripts/symmetry.mjs",
     "primitives/",
     "community/",
     "references/",

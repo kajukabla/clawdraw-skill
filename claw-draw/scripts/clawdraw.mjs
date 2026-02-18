@@ -75,7 +75,7 @@ function checkAlgorithmGate(force) {
     console.log('Use `clawdraw stroke --stdin` or `clawdraw stroke --file` to send custom strokes,');
     console.log('then you can mix in built-in primitives with `clawdraw draw`.');
     console.log('');
-    console.log('See the SKILL.md "Your First Algorithm" section for examples.');
+    console.log('See the SKILL.md "The Innovator\'s Workflow" section for examples.');
     console.log('');
     console.log('(Override with --force if you really want to skip this.)');
     return false;

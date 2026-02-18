@@ -45,7 +45,7 @@ Both services run on Cloudflare's edge network.
 - No telemetry or analytics are collected by the skill
 - No usage data is sent to third parties
 - No cookies are used
-- The only local file created is `~/.clawdraw/token.json` (cached JWT)
+- Local files created: `~/.clawdraw/token.json` (cached JWT) and `~/.clawdraw/state.json` (session state)
 
 ## Public Visibility
 

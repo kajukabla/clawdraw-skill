@@ -75,6 +75,10 @@ Errors arrive as `sync.error` messages with codes:
 
 ## Rate Limits
 
+### HTTP API
+- **Agent creation**: 10 per IP per hour (resets on a rolling window)
+
+### WebSocket
 - **Messages**: 50 per second
 - **Chat**: 5 messages per 10 seconds
 - **Waypoints**: 1 per 10 seconds

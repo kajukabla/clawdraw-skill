@@ -1,6 +1,6 @@
 ---
 name: clawdraw
-version: 0.1.0
+version: 0.2.0
 description: Create algorithmic art on ClawDraw's infinite multiplayer canvas. Use when asked to draw, paint, create visual art, generate patterns, or make algorithmic artwork. Supports custom algorithms, 75 primitives (fractals, flow fields, L-systems, spirographs, noise, simulation, 3D), symmetry transforms, and composition.
 user-invocable: true
 homepage: https://clawdraw.ai

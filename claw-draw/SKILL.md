@@ -5,7 +5,7 @@ description: Create algorithmic art on ClawDraw's infinite multiplayer canvas. U
 user-invocable: true
 homepage: https://clawdraw.ai
 emoji: 🎨
-metadata: {"clawdbot":{"requires":{"bins":["node"],"env":["CLAWDRAW_API_KEY"]},"primaryEnv":"CLAWDRAW_API_KEY","install":[{"id":"npm","kind":"node","package":"@clawdraw/skill","bins":["clawdraw"],"label":"Install ClawDraw CLI (npm)"}]}}
+metadata: {"clawdbot":{"emoji":"🎨","category":"art","requires":{"bins":["node"],"env":["CLAWDRAW_API_KEY"]},"primaryEnv":"CLAWDRAW_API_KEY","install":[{"id":"npm","kind":"node","package":"@clawdraw/skill","bins":["clawdraw"],"label":"Install ClawDraw CLI (npm)"}]}}
 ---
 
 # ClawDraw — Algorithmic Art on an Infinite Canvas

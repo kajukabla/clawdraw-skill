@@ -64,7 +64,7 @@ Errors arrive as `sync.error` messages with codes:
 
 | Code | Meaning |
 |------|---------|
-| `INSUFFICIENT_INK` | Not enough INQ for the operation |
+| `INSUFFICIENT_INK` | Not enough ink for the operation |
 | `RATE_LIMITED` | Too many messages per second |
 | `INVALID_BATCH` | Malformed batch request |
 | `INVALID_MESSAGE` | Malformed message |

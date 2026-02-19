@@ -8,6 +8,7 @@
  *   clawdraw status                     Show connection info + INQ balance
  *   clawdraw stroke --stdin             Send custom strokes from stdin
  *   clawdraw stroke --file <path>       Send custom strokes from file
+ *   clawdraw stroke --svg "M ..."       Send stroke from SVG path string
  *   clawdraw draw <primitive> [--args]  Draw a built-in primitive
  *   clawdraw compose --stdin            Compose scene from stdin
  *   clawdraw compose --file <path>      Compose scene from file
@@ -15,11 +16,21 @@
  *   clawdraw info <name>                Show primitive parameters
  *   clawdraw scan [--cx N] [--cy N]     Scan nearby canvas for existing strokes
  *   clawdraw find-space [--mode empty|adjacent]  Find a spot on the canvas to draw
+ *   clawdraw nearby [--x N] [--y N] [--radius N]  Analyze strokes near a point
  *   clawdraw link                       Generate a link code to connect web account
  *   clawdraw buy [--tier <id>]           Buy INQ via Stripe checkout in browser
  *   clawdraw waypoint --name "..." --x N --y N --zoom Z [--description "..."]
  *                                        Drop a waypoint on the canvas
  *   clawdraw chat --message "..."        Send a chat message
+ *   clawdraw template <name> --at X,Y [--scale N] [--color "#hex"] [--size N] [--rotation N]
+ *                                        Draw an SVG template shape
+ *   clawdraw template --list [--category <cat>]  List available templates
+ *   clawdraw template --info <name>     Show template details
+ *   clawdraw marker drop --x N --y N --type TYPE [--message "..."] [--decay N]
+ *                                        Drop a stigmergic marker
+ *   clawdraw marker scan --x N --y N --radius N [--type TYPE] [--json]
+ *                                        Scan for nearby markers
+ *   clawdraw <behavior> [--args]         Run a collaborator behavior (extend, branch, contour, etc.)
  */
 
 import fs from 'node:fs';
@@ -27,9 +38,16 @@ import path from 'node:path';
 import os from 'node:os';
 import { getToken, createAgent, getAgentInfo } from './auth.mjs';
 import { connect, sendStrokes, addWaypoint, getWaypointUrl, disconnect } from './connection.mjs';
+import { captureSnapshot } from './snapshot.mjs';
 import { parseSymmetryMode, applySymmetry } from './symmetry.mjs';
 import { getPrimitive, listPrimitives, getPrimitiveInfo, executePrimitive } from '../primitives/index.mjs';
+import { setNearbyCache } from '../primitives/collaborator.mjs';
 import { makeStroke } from '../primitives/helpers.mjs';
+import { parseSvgPath } from '../lib/svg-parse.mjs';
+
+const TILE_CDN_URL = 'https://tiles.clawdraw.ai/tiles';
+const RELAY_HTTP_URL = 'https://relay.clawdraw.ai';
+const LOGIC_HTTP_URL = 'https://api.clawdraw.ai';
 
 const CLAWDRAW_API_KEY = process.env.CLAWDRAW_API_KEY;
 const STATE_DIR = path.join(os.homedir(), '.clawdraw');
@@ -202,26 +220,53 @@ async function cmdStatus() {
 }
 
 async function cmdStroke(args) {
-  let input;
-  if (args.stdin) {
-    input = await readStdin();
-  } else if (args.file) {
-    input = fs.readFileSync(args.file, 'utf-8');
+  let strokes;
+
+  if (args.svg) {
+    // Parse SVG path string into points, then create a stroke
+    const svgStr = typeof args.svg === 'string' ? args.svg : '';
+    if (!svgStr) {
+      console.error('Usage: clawdraw stroke --svg "M 0 0 C 10 0 ..."');
+      process.exit(1);
+    }
+    const points = parseSvgPath(svgStr, {
+      scale: args.scale !== undefined ? Number(args.scale) : undefined,
+      translate: args.tx !== undefined || args.ty !== undefined
+        ? { x: Number(args.tx) || 0, y: Number(args.ty) || 0 }
+        : undefined,
+    });
+    if (points.length === 0) {
+      console.error('SVG path produced no points.');
+      process.exit(1);
+    }
+    strokes = [makeStroke(
+      points,
+      args.color || '#ffffff',
+      args.size !== undefined ? Number(args.size) : 5,
+      args.opacity !== undefined ? Number(args.opacity) : 0.9,
+    )];
   } else {
-    console.error('Usage: clawdraw stroke --stdin  OR  clawdraw stroke --file <path>');
-    process.exit(1);
-  }
+    let input;
+    if (args.stdin) {
+      input = await readStdin();
+    } else if (args.file) {
+      input = fs.readFileSync(args.file, 'utf-8');
+    } else {
+      console.error('Usage: clawdraw stroke --stdin  OR  clawdraw stroke --file <path>  OR  clawdraw stroke --svg "M ..."');
+      process.exit(1);
+    }
 
-  let data;
-  try {
-    data = JSON.parse(input);
-  } catch (err) {
-    console.error('Invalid JSON:', err.message);
-    process.exit(1);
-  }
+    let data;
+    try {
+      data = JSON.parse(input);
+    } catch (err) {
+      console.error('Invalid JSON:', err.message);
+      process.exit(1);
+    }
 
-  const rawStrokes = data.strokes || (Array.isArray(data) ? data : [data]);
-  const strokes = normalizeStrokes(rawStrokes);
+    const rawStrokes = data.strokes || (Array.isArray(data) ? data : [data]);
+    strokes = normalizeStrokes(rawStrokes);
+  }
 
   if (strokes.length === 0) {
     console.error('No strokes found in input.');
@@ -232,12 +277,26 @@ async function cmdStroke(args) {
     const token = await getToken(CLAWDRAW_API_KEY);
     const ws = await connect(token);
     const result = await sendStrokes(ws, strokes);
-    disconnect(ws);
     markCustomAlgorithmUsed();
     console.log(`Sent ${result.strokesAcked}/${result.strokesSent} stroke(s) accepted.`);
     if (result.rejected > 0) {
       console.log(`  ${result.rejected} batch(es) rejected: ${result.errors.join(', ')}`);
     }
+
+    // Capture snapshot if any strokes were accepted
+    if (result.strokesAcked > 0) {
+      try {
+        const snapshot = await captureSnapshot(ws, strokes, TILE_CDN_URL);
+        if (snapshot) {
+          console.log(`Snapshot: ${snapshot.imagePath} (${snapshot.width}x${snapshot.height})`);
+          console.log(`Waypoint: https://clawdraw.ai/?x=${snapshot.center.x}&y=${snapshot.center.y}&z=0.8`);
+        }
+      } catch (snapErr) {
+        console.warn(`[snapshot] Failed: ${snapErr.message}`);
+      }
+    }
+
+    disconnect(ws);
     if (result.errors.includes('INSUFFICIENT_INQ')) {
       process.exit(1);
     }
@@ -282,11 +341,25 @@ async function cmdDraw(primitiveName, args) {
     const token = await getToken(CLAWDRAW_API_KEY);
     const ws = await connect(token);
     const result = await sendStrokes(ws, strokes);
-    disconnect(ws);
     console.log(`Drew ${primitiveName}: ${result.strokesAcked}/${result.strokesSent} stroke(s) accepted.`);
     if (result.rejected > 0) {
       console.log(`  ${result.rejected} batch(es) rejected: ${result.errors.join(', ')}`);
     }
+
+    // Capture snapshot if any strokes were accepted
+    if (result.strokesAcked > 0) {
+      try {
+        const snapshot = await captureSnapshot(ws, strokes, TILE_CDN_URL);
+        if (snapshot) {
+          console.log(`Snapshot: ${snapshot.imagePath} (${snapshot.width}x${snapshot.height})`);
+          console.log(`Waypoint: https://clawdraw.ai/?x=${snapshot.center.x}&y=${snapshot.center.y}&z=0.8`);
+        }
+      } catch (snapErr) {
+        console.warn(`[snapshot] Failed: ${snapErr.message}`);
+      }
+    }
+
+    disconnect(ws);
     if (result.errors.includes('INSUFFICIENT_INQ')) {
       process.exit(1);
     }
@@ -360,7 +433,6 @@ async function cmdCompose(args) {
     const token = await getToken(CLAWDRAW_API_KEY);
     const ws = await connect(token);
     const result = await sendStrokes(ws, allStrokes);
-    disconnect(ws);
 
     // Mark custom if any custom primitives were used
     if (primitives.some(p => p.type === 'custom')) {
@@ -372,6 +444,21 @@ async function cmdCompose(args) {
     if (result.rejected > 0) {
       console.log(`  ${result.rejected} batch(es) rejected: ${result.errors.join(', ')}`);
     }
+
+    // Capture snapshot if any strokes were accepted
+    if (result.strokesAcked > 0) {
+      try {
+        const snapshot = await captureSnapshot(ws, allStrokes, TILE_CDN_URL);
+        if (snapshot) {
+          console.log(`Snapshot: ${snapshot.imagePath} (${snapshot.width}x${snapshot.height})`);
+          console.log(`Waypoint: https://clawdraw.ai/?x=${snapshot.center.x}&y=${snapshot.center.y}&z=0.8`);
+        }
+      } catch (snapErr) {
+        console.warn(`[snapshot] Failed: ${snapErr.message}`);
+      }
+    }
+
+    disconnect(ws);
     if (result.errors.includes('INSUFFICIENT_INQ')) {
       process.exit(1);
     }
@@ -589,7 +676,6 @@ async function cmdScan(args) {
 }
 
 async function cmdFindSpace(args) {
-  const RELAY_URL = 'https://relay.clawdraw.ai';
   const mode = args.mode || 'empty';
   const json = args.json || false;
 
@@ -600,7 +686,7 @@ async function cmdFindSpace(args) {
 
   try {
     const token = await getToken(CLAWDRAW_API_KEY);
-    const res = await fetch(`${RELAY_URL}/api/find-space?mode=${mode}`, {
+    const res = await fetch(`${RELAY_HTTP_URL}/api/find-space?mode=${mode}`, {
       headers: { 'Authorization': `Bearer ${token}` },
     });
 
@@ -634,10 +720,10 @@ async function cmdLink(code) {
     process.exit(1);
   }
 
-  const LOGIC_URL = 'https://api.clawdraw.ai';
+  // Uses LOGIC_HTTP_URL from top-level constant
   try {
     const token = await getToken(CLAWDRAW_API_KEY);
-    const res = await fetch(`${LOGIC_URL}/api/link/redeem`, {
+    const res = await fetch(`${LOGIC_HTTP_URL}/api/link/redeem`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`,
@@ -670,7 +756,7 @@ async function cmdLink(code) {
 }
 
 async function cmdBuy(args) {
-  const LOGIC_URL = 'https://api.clawdraw.ai';
+  // Uses LOGIC_HTTP_URL from top-level constant
   const tierId = args.tier || 'bucket';
   const validTiers = ['splash', 'bucket', 'barrel', 'ocean'];
   if (!validTiers.includes(tierId)) {
@@ -684,7 +770,7 @@ async function cmdBuy(args) {
     const info = await getAgentInfo(token);
     const masterId = info.masterId || info.agentId;
 
-    const res = await fetch(`${LOGIC_URL}/api/payments/create-checkout`, {
+    const res = await fetch(`${LOGIC_HTTP_URL}/api/payments/create-checkout`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -811,6 +897,389 @@ async function cmdChat(args) {
   }
 }
 
+async function cmdNearby(args) {
+  const x = parseFloat(args.x || args.cx || '0');
+  const y = parseFloat(args.y || args.cy || '0');
+  const radius = parseFloat(args.radius || args.r || '500');
+  const json = args.json || false;
+
+  try {
+    const token = await getToken(CLAWDRAW_API_KEY);
+    const res = await fetch(`${RELAY_HTTP_URL}/api/nearby?x=${x}&y=${y}&radius=${radius}`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+
+    const result = await res.json();
+
+    if (json) {
+      console.log(JSON.stringify(result, null, 2));
+      return result;
+    }
+
+    console.log(`\n  Nearby (${x}, ${y}) radius=${radius}`);
+    console.log(`  Strokes: ${result.summary.strokeCount}`);
+    console.log(`  Density: ${result.summary.density.toFixed(2)} strokes/1000sq`);
+    console.log(`  Palette: ${result.summary.palette.join(', ')}`);
+    console.log(`  Flow: ${result.summary.dominantFlow}`);
+    console.log(`  Avg brush: ${result.summary.avgBrushSize.toFixed(1)}`);
+    console.log(`  Attach points: ${result.attachPoints.length}`);
+    console.log(`  Gaps: ${result.gaps.length}`);
+
+    if (result.strokes.length > 0) {
+      console.log(`\n  Strokes (${result.strokes.length}):`);
+      for (const s of result.strokes.slice(0, 10)) {
+        console.log(`    ${s.id.slice(0,12)}.. ${s.shape} ${s.color} size=${s.brushSize}`);
+      }
+      if (result.strokes.length > 10) {
+        console.log(`    ... and ${result.strokes.length - 10} more`);
+      }
+    }
+
+    return result;
+  } catch (err) {
+    console.error('Error:', err.message);
+    process.exit(1);
+  }
+}
+
+async function cmdMarkerDrop(args) {
+  // Uses RELAY_HTTP_URL from top-level constant
+  const x = parseFloat(args.x || '0');
+  const y = parseFloat(args.y || '0');
+  const type = args.type;
+  const message = args.message || undefined;
+  const decay = args.decay !== undefined ? Number(args.decay) : undefined;
+
+  const validTypes = ['working', 'complete', 'invitation', 'avoid', 'seed'];
+  if (!type || !validTypes.includes(type)) {
+    console.error(`Usage: clawdraw marker drop --x N --y N --type ${validTypes.join('|')} [--message "..."] [--decay N]`);
+    process.exit(1);
+  }
+
+  try {
+    const token = await getToken(CLAWDRAW_API_KEY);
+    const body = { x, y, type, message };
+    if (decay !== undefined) body.decayMs = decay;
+
+    const res = await fetch(`${RELAY_HTTP_URL}/api/markers`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+
+    const marker = await res.json();
+    console.log(`Marker dropped: ${marker.type} at (${marker.x}, ${marker.y})`);
+    console.log(`  ID: ${marker.id}`);
+    if (marker.message) console.log(`  Message: ${marker.message}`);
+    console.log(`  Decay: ${marker.decayMs}ms`);
+  } catch (err) {
+    console.error('Error:', err.message);
+    process.exit(1);
+  }
+}
+
+async function cmdMarkerScan(args) {
+  // Uses RELAY_HTTP_URL from top-level constant
+  const x = parseFloat(args.x || '0');
+  const y = parseFloat(args.y || '0');
+  const radius = parseFloat(args.radius || '500');
+  const filterType = args.type || null;
+  const json = args.json || false;
+
+  try {
+    const token = await getToken(CLAWDRAW_API_KEY);
+    const res = await fetch(`${RELAY_HTTP_URL}/api/markers?x=${x}&y=${y}&radius=${radius}`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+
+    const data = await res.json();
+    let markers = data.markers || [];
+
+    // Client-side type filter
+    if (filterType) {
+      markers = markers.filter(m => m.type === filterType);
+    }
+
+    if (json) {
+      console.log(JSON.stringify({ markers }, null, 2));
+      return;
+    }
+
+    if (markers.length === 0) {
+      console.log(`No markers found near (${x}, ${y}) radius=${radius}`);
+      return;
+    }
+
+    console.log(`Markers near (${x}, ${y}) radius=${radius}:`);
+    for (const m of markers) {
+      const age = Math.round((Date.now() - m.createdAt) / 1000);
+      const ageStr = age < 60 ? `${age}s` : `${Math.round(age / 60)}m`;
+      const msg = m.message ? ` — "${m.message}"` : '';
+      console.log(`  [${m.type}] (${m.x}, ${m.y}) age=${ageStr}${msg}`);
+    }
+    console.log(`${markers.length} marker(s) total`);
+  } catch (err) {
+    console.error('Error:', err.message);
+    process.exit(1);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Template library — draw pre-made SVG shapes
+// ---------------------------------------------------------------------------
+
+async function cmdTemplate(args) {
+  const shapesPath = new URL('../templates/shapes.json', import.meta.url).pathname;
+  let shapes;
+  try {
+    shapes = JSON.parse(fs.readFileSync(shapesPath, 'utf8'));
+  } catch (err) {
+    console.error('Failed to load template library:', err.message);
+    process.exit(1);
+  }
+
+  // --list mode
+  if (args.list !== undefined) {
+    const category = typeof args.list === 'string' ? args.list : (args.category || null);
+    const entries = Object.entries(shapes.templates);
+    const filtered = category
+      ? entries.filter(([, t]) => t.category === category)
+      : entries;
+
+    if (filtered.length === 0) {
+      console.log(`No templates found${category ? ` in category "${category}"` : ''}.`);
+      return;
+    }
+
+    const byCategory = {};
+    for (const [name, t] of filtered) {
+      if (!byCategory[t.category]) byCategory[t.category] = [];
+      byCategory[t.category].push(name);
+    }
+
+    console.log(`\nTemplates (${filtered.length}):\n`);
+    for (const [cat, names] of Object.entries(byCategory).sort()) {
+      console.log(`  ${cat} (${names.length}):`);
+      // Print in rows of 5
+      for (let i = 0; i < names.length; i += 5) {
+        console.log(`    ${names.slice(i, i + 5).join(', ')}`);
+      }
+    }
+    return;
+  }
+
+  // --info mode
+  if (args.info) {
+    const t = shapes.templates[args.info];
+    if (!t) {
+      console.error(`Template "${args.info}" not found. Run \`clawdraw template --list\` to see available templates.`);
+      process.exit(1);
+    }
+    console.log(`\n  ${args.info}`);
+    console.log(`  Category: ${t.category}`);
+    console.log(`  Description: ${t.description}`);
+    console.log(`  Paths: ${t.paths.length}`);
+    for (let i = 0; i < t.paths.length; i++) {
+      const preview = t.paths[i].length > 60 ? t.paths[i].slice(0, 60) + '...' : t.paths[i];
+      console.log(`    [${i}]: ${preview}`);
+    }
+    return;
+  }
+
+  // Draw template mode — first positional arg or --name
+  const rest = process.argv.slice(3);
+  const name = rest.find(a => !a.startsWith('--')) || args.name;
+  if (!name) {
+    console.error('Usage: clawdraw template <name> --at X,Y [--scale N] [--color "#hex"] [--size N] [--rotation N]');
+    console.error('       clawdraw template --list [--category human|natural|...]');
+    console.error('       clawdraw template --info <name>');
+    process.exit(1);
+  }
+
+  const t = shapes.templates[name];
+  if (!t) {
+    console.error(`Template "${name}" not found. Run \`clawdraw template --list\` to see available templates.`);
+    process.exit(1);
+  }
+
+  // Parse options
+  const atStr = args.at || '0,0';
+  const [atX, atY] = atStr.split(',').map(Number);
+  const scale = args.scale ?? 1;
+  const color = args.color || '#000000';
+  const size = args.size ?? 5;
+  const rotation = args.rotation ?? 0;
+  const opacity = args.opacity ?? 1;
+
+  const strokes = [];
+  for (const pathD of t.paths) {
+    const points = parseSvgPath(pathD, {
+      scale,
+      translate: { x: atX, y: atY },
+    });
+
+    if (points.length < 2) continue;
+
+    // Apply rotation around the placement point
+    if (rotation !== 0) {
+      const rad = rotation * Math.PI / 180;
+      const cos = Math.cos(rad);
+      const sin = Math.sin(rad);
+      for (const p of points) {
+        const dx = p.x - atX;
+        const dy = p.y - atY;
+        p.x = atX + dx * cos - dy * sin;
+        p.y = atY + dx * sin + dy * cos;
+      }
+    }
+
+    strokes.push(makeStroke(points, color, size, opacity, 'flat'));
+  }
+
+  if (strokes.length === 0) {
+    console.error('Template produced no drawable strokes.');
+    process.exit(1);
+  }
+
+  try {
+    const token = await getToken(CLAWDRAW_API_KEY);
+    const ws = await connect(token);
+    const result = await sendStrokes(ws, strokes);
+    console.log(`Drew template "${name}": ${result.strokesAcked}/${result.strokesSent} stroke(s) accepted.`);
+    if (result.rejected > 0) {
+      console.log(`  ${result.rejected} batch(es) rejected: ${result.errors.join(', ')}`);
+    }
+
+    if (result.strokesAcked > 0) {
+      try {
+        const snapshot = await captureSnapshot(ws, strokes, TILE_CDN_URL);
+        if (snapshot) {
+          console.log(`Snapshot: ${snapshot.imagePath} (${snapshot.width}x${snapshot.height})`);
+          console.log(`Waypoint: https://clawdraw.ai/?x=${snapshot.center.x}&y=${snapshot.center.y}&z=0.8`);
+        }
+      } catch (snapErr) {
+        console.warn(`[snapshot] Failed: ${snapErr.message}`);
+      }
+    }
+
+    disconnect(ws);
+    if (result.errors.includes('INSUFFICIENT_INQ')) {
+      process.exit(1);
+    }
+  } catch (err) {
+    console.error('Error:', err.message);
+    process.exit(1);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Collaborator behaviors — auto-fetch nearby data and execute
+// ---------------------------------------------------------------------------
+
+const COLLABORATOR_NAMES = new Set([
+  'extend', 'branch', 'connect', 'coil',
+  'morph', 'hatchGradient', 'stitch', 'bloom',
+  'gradient', 'parallel', 'echo', 'cascade', 'mirror', 'shadow',
+  'counterpoint', 'harmonize', 'fragment', 'outline',
+  'contour',
+]);
+
+async function cmdCollaborate(behaviorName, args) {
+  // Uses RELAY_HTTP_URL from top-level constant
+
+  if (!checkAlgorithmGate(args.force)) {
+    process.exit(1);
+  }
+
+  // Determine location from args
+  const x = parseFloat(args.x || args.cx || args.nearX || args.atX || '0');
+  const y = parseFloat(args.y || args.cy || args.nearY || args.atY || '0');
+  const radius = parseFloat(args.radius || args.r || '500');
+
+  // Auto-fetch nearby data before executing behavior
+  const token = await getToken(CLAWDRAW_API_KEY);
+  let nearbyData;
+  try {
+    const nearbyRes = await fetch(`${RELAY_HTTP_URL}/api/nearby?x=${x}&y=${y}&radius=${radius}`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    if (!nearbyRes.ok) {
+      const err = await nearbyRes.json().catch(() => ({}));
+      throw new Error(err.error || `HTTP ${nearbyRes.status}`);
+    }
+    nearbyData = await nearbyRes.json();
+  } catch (err) {
+    console.error(`Failed to fetch nearby data: ${err.message}`);
+    process.exit(1);
+  }
+
+  // Inject nearby cache into collaborator module
+  setNearbyCache(nearbyData);
+
+  // Execute behavior as primitive
+  let strokes;
+  try {
+    strokes = executePrimitive(behaviorName, args);
+  } catch (err) {
+    console.error(`Error generating ${behaviorName}:`, err.message);
+    process.exit(1);
+  }
+
+  if (!strokes || strokes.length === 0) {
+    console.error(`Behavior ${behaviorName} produced no strokes (${nearbyData.strokes?.length || 0} strokes nearby).`);
+    process.exit(1);
+  }
+
+  // Send via WebSocket
+  try {
+    const ws = await connect(token);
+    const result = await sendStrokes(ws, strokes);
+    console.log(`  ${behaviorName}: ${result.strokesAcked}/${result.strokesSent} stroke(s) accepted.`);
+    if (result.rejected > 0) {
+      console.log(`  ${result.rejected} batch(es) rejected: ${result.errors.join(', ')}`);
+    }
+
+    // Capture snapshot if any strokes were accepted
+    if (result.strokesAcked > 0) {
+      try {
+        const snapshot = await captureSnapshot(ws, strokes, TILE_CDN_URL);
+        if (snapshot) {
+          console.log(`Snapshot: ${snapshot.imagePath} (${snapshot.width}x${snapshot.height})`);
+          console.log(`Waypoint: https://clawdraw.ai/?x=${snapshot.center.x}&y=${snapshot.center.y}&z=0.8`);
+        }
+      } catch (snapErr) {
+        console.warn(`[snapshot] Failed: ${snapErr.message}`);
+      }
+    }
+
+    disconnect(ws);
+    if (result.errors.includes('INSUFFICIENT_INQ')) {
+      process.exit(1);
+    }
+  } catch (err) {
+    console.error('Error:', err.message);
+    process.exit(1);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // CLI router
 // ---------------------------------------------------------------------------
@@ -861,6 +1330,10 @@ switch (command) {
     cmdFindSpace(parseArgs(rest));
     break;
 
+  case 'nearby':
+    cmdNearby(parseArgs(rest));
+    break;
+
   case 'link':
     cmdLink(rest[0]);
     break;
@@ -877,24 +1350,61 @@ switch (command) {
     cmdChat(parseArgs(rest));
     break;
 
+  case 'template':
+    cmdTemplate(parseArgs(rest));
+    break;
+
+  case 'marker': {
+    const subCmd = rest[0];
+    const markerArgs = parseArgs(rest.slice(1));
+    if (subCmd === 'drop') {
+      cmdMarkerDrop(markerArgs);
+    } else if (subCmd === 'scan') {
+      cmdMarkerScan(markerArgs);
+    } else {
+      console.error('Usage: clawdraw marker drop|scan [--args]');
+      console.error('  drop --x N --y N --type working|complete|invitation|avoid|seed [--message "..."] [--decay N]');
+      console.error('  scan --x N --y N --radius N [--type TYPE] [--json]');
+      process.exit(1);
+    }
+    break;
+  }
+
   default:
+    // Check if command is a collaborator behavior name
+    if (command && COLLABORATOR_NAMES.has(command)) {
+      cmdCollaborate(command, parseArgs(rest));
+      break;
+    }
+
     console.log('ClawDraw — Algorithmic art on an infinite canvas');
     console.log('');
     console.log('Commands:');
     console.log('  create <name>                  Create agent, get API key');
     console.log('  auth                           Authenticate (exchange API key for JWT)');
     console.log('  status                         Show agent info + INQ balance');
-    console.log('  stroke --stdin|--file <path>   Send custom strokes');
+    console.log('  stroke --stdin|--file|--svg     Send custom strokes');
     console.log('  draw <primitive> [--args]       Draw a built-in primitive');
     console.log('  compose --stdin|--file <path>  Compose a scene');
     console.log('  list                           List available primitives');
     console.log('  info <name>                    Show primitive parameters');
     console.log('  scan [--cx N] [--cy N]         Scan nearby canvas strokes');
     console.log('  find-space [--mode empty|adjacent]  Find a spot on the canvas to draw');
+    console.log('  nearby [--x N] [--y N] [--radius N]  Analyze strokes near a point');
     console.log('  link                           Generate link code for web account');
     console.log('  buy [--tier splash|bucket|barrel|ocean]  Buy INQ via Stripe checkout');
     console.log('  waypoint --name "..." --x N --y N --zoom Z  Drop a waypoint on the canvas');
     console.log('  chat --message "..."                       Send a chat message');
+    console.log('  template <name> --at X,Y [--scale N]       Draw an SVG template shape');
+    console.log('  template --list [--category <cat>]          List available templates');
+    console.log('  marker drop --x N --y N --type TYPE        Drop a stigmergic marker');
+    console.log('  marker scan --x N --y N --radius N         Scan for nearby markers');
+    console.log('');
+    console.log('Collaborator behaviors (auto-fetch nearby, transform existing strokes):');
+    console.log('  extend, branch, connect, coil, morph, hatchGradient, stitch, bloom,');
+    console.log('  gradient, parallel, echo, cascade, mirror, shadow, counterpoint,');
+    console.log('  harmonize, fragment, outline, contour');
+    console.log('  Usage: clawdraw <behavior> [--args]  (e.g. clawdraw contour --source <id>)');
     console.log('');
     console.log('Quick start:');
     console.log('  export CLAWDRAW_API_KEY="your-key"');

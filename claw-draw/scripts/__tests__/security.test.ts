@@ -5,6 +5,7 @@
  * 1. No env-var overrides for server URLs (prevents API key redirection)
  * 2. No execSync usage (prevents shell injection)
  * 3. Checkout URL validation (HTTPS-only, valid URL structure)
+ * 4. lib/ and community/ safety (no exec, no network, no env, no dynamic import)
  */
 
 import { describe, it, expect } from 'vitest';
@@ -15,6 +16,20 @@ const SCRIPTS_DIR = path.resolve(__dirname, '..');
 
 function readScript(name: string): string {
   return fs.readFileSync(path.join(SCRIPTS_DIR, name), 'utf-8');
+}
+
+/** Recursively collect all .mjs files under a directory. */
+function collectMjsFiles(dir: string, excludeNames: string[] = []): string[] {
+  const results: string[] = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      results.push(...collectMjsFiles(full, excludeNames));
+    } else if (entry.name.endsWith('.mjs') && !excludeNames.includes(entry.name)) {
+      results.push(full);
+    }
+  }
+  return results;
 }
 
 describe('env-harvesting protection', () => {
@@ -59,6 +74,18 @@ describe('env-harvesting protection', () => {
     const src = readScript('clawdraw.mjs');
     expect(src).toContain('process.env.CLAWDRAW_API_KEY');
   });
+
+  it('no published script should use process.env for anything except CLAWDRAW_API_KEY', () => {
+    const scripts = ['auth.mjs', 'clawdraw.mjs', 'connection.mjs', 'symmetry.mjs', 'snapshot.mjs'];
+    for (const name of scripts) {
+      const src = readScript(name);
+      // Find all process.env usages
+      const envMatches = src.match(/process\.env\.\w+/g) || [];
+      for (const match of envMatches) {
+        expect(match, `${name} uses disallowed env var: ${match}`).toBe('process.env.CLAWDRAW_API_KEY');
+      }
+    }
+  });
 });
 
 describe('dangerous-exec protection', () => {
@@ -76,7 +103,7 @@ describe('dangerous-exec protection', () => {
   });
 
   it('no script should use execSync', () => {
-    const scripts = ['auth.mjs', 'clawdraw.mjs', 'connection.mjs', 'symmetry.mjs'];
+    const scripts = ['auth.mjs', 'clawdraw.mjs', 'connection.mjs', 'symmetry.mjs', 'snapshot.mjs'];
     for (const name of scripts) {
       const src = readScript(name);
       expect(src).not.toContain('execSync');
@@ -126,22 +153,7 @@ describe('checkout URL validation', () => {
 
 describe('primitives safety', () => {
   const primDir = path.resolve(__dirname, '..', '..', 'primitives');
-
-  /** Recursively collect all .mjs files under a directory. */
-  function collectMjsFiles(dir: string): string[] {
-    const results: string[] = [];
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        results.push(...collectMjsFiles(full));
-      } else if (entry.name.endsWith('.mjs') && entry.name !== 'helpers.mjs') {
-        results.push(full);
-      }
-    }
-    return results;
-  }
-
-  const mjsFiles = collectMjsFiles(primDir);
+  const mjsFiles = collectMjsFiles(primDir, ['helpers.mjs']);
 
   // Sanity: make sure we actually found primitive files
   it('should find primitive .mjs files', () => {
@@ -187,6 +199,116 @@ describe('primitives safety', () => {
       const src = fs.readFileSync(file, 'utf-8');
       const rel = path.relative(primDir, file);
       expect(src, `${rel} contains process.env`).not.toContain('process.env');
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// lib/ safety — same guards as primitives
+// ---------------------------------------------------------------------------
+
+describe('lib/ safety', () => {
+  const libDir = path.resolve(__dirname, '..', '..', 'lib');
+  const mjsFiles = collectMjsFiles(libDir);
+
+  it('should find lib .mjs files', () => {
+    expect(mjsFiles.length).toBeGreaterThan(0);
+  });
+
+  it('no shell execution in any lib module', () => {
+    for (const file of mjsFiles) {
+      const src = fs.readFileSync(file, 'utf-8');
+      const rel = path.relative(libDir, file);
+      expect(src, `${rel} contains execSync`).not.toContain('execSync');
+      expect(src, `${rel} contains child_process`).not.toContain('child_process');
+      expect(src, `${rel} contains eval(`).not.toMatch(/\beval\s*\(/);
+      expect(src, `${rel} contains Function(`).not.toMatch(/\bFunction\s*\(/);
+      expect(src, `${rel} contains spawn(`).not.toMatch(/\bspawn\s*\(/);
+    }
+  });
+
+  it('no network access in any lib module', () => {
+    for (const file of mjsFiles) {
+      const src = fs.readFileSync(file, 'utf-8');
+      const rel = path.relative(libDir, file);
+      expect(src, `${rel} contains fetch(`).not.toMatch(/\bfetch\s*\(/);
+      expect(src, `${rel} contains http.`).not.toMatch(/\bhttp\./);
+      expect(src, `${rel} contains https.`).not.toMatch(/\bhttps\./);
+      expect(src, `${rel} contains net.`).not.toMatch(/\bnet\./);
+      expect(src, `${rel} contains XMLHttpRequest`).not.toContain('XMLHttpRequest');
+    }
+  });
+
+  it('no environment variable access in any lib module', () => {
+    for (const file of mjsFiles) {
+      const src = fs.readFileSync(file, 'utf-8');
+      const rel = path.relative(libDir, file);
+      expect(src, `${rel} contains process.env`).not.toContain('process.env');
+    }
+  });
+
+  it('no dynamic imports in any lib module', () => {
+    for (const file of mjsFiles) {
+      const src = fs.readFileSync(file, 'utf-8');
+      const rel = path.relative(libDir, file);
+      expect(src, `${rel} contains import(`).not.toMatch(/import\s*\(/);
+      expect(src, `${rel} contains require(`).not.toMatch(/require\s*\(/);
+      expect(src, `${rel} contains readdir`).not.toMatch(/readdir/);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// community/ safety — same guards as primitives
+// ---------------------------------------------------------------------------
+
+describe('community/ safety', () => {
+  const communityDir = path.resolve(__dirname, '..', '..', 'community');
+  const mjsFiles = collectMjsFiles(communityDir);
+
+  it('should find community .mjs files', () => {
+    expect(mjsFiles.length).toBeGreaterThan(0);
+  });
+
+  it('no shell execution in any community module', () => {
+    for (const file of mjsFiles) {
+      const src = fs.readFileSync(file, 'utf-8');
+      const rel = path.relative(communityDir, file);
+      expect(src, `${rel} contains execSync`).not.toContain('execSync');
+      expect(src, `${rel} contains child_process`).not.toContain('child_process');
+      expect(src, `${rel} contains eval(`).not.toMatch(/\beval\s*\(/);
+      expect(src, `${rel} contains Function(`).not.toMatch(/\bFunction\s*\(/);
+      expect(src, `${rel} contains spawn(`).not.toMatch(/\bspawn\s*\(/);
+    }
+  });
+
+  it('no network access in any community module', () => {
+    for (const file of mjsFiles) {
+      const src = fs.readFileSync(file, 'utf-8');
+      const rel = path.relative(communityDir, file);
+      expect(src, `${rel} contains fetch(`).not.toMatch(/\bfetch\s*\(/);
+      expect(src, `${rel} contains http.`).not.toMatch(/\bhttp\./);
+      expect(src, `${rel} contains https.`).not.toMatch(/\bhttps\./);
+      expect(src, `${rel} contains net.`).not.toMatch(/\bnet\./);
+      expect(src, `${rel} contains XMLHttpRequest`).not.toContain('XMLHttpRequest');
+    }
+  });
+
+  it('no environment variable access in any community module', () => {
+    for (const file of mjsFiles) {
+      const src = fs.readFileSync(file, 'utf-8');
+      const rel = path.relative(communityDir, file);
+      expect(src, `${rel} contains process.env`).not.toContain('process.env');
+    }
+  });
+
+  it('no dynamic imports in any community module', () => {
+    for (const file of mjsFiles) {
+      const src = fs.readFileSync(file, 'utf-8');
+      const rel = path.relative(communityDir, file);
+      expect(src, `${rel} contains import(`).not.toMatch(/import\s*\(/);
+      expect(src, `${rel} contains require(`).not.toMatch(/require\s*\(/);
+      expect(src, `${rel} contains readdir`).not.toMatch(/readdir/);
     }
   });
 });

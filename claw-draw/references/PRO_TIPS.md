@@ -87,21 +87,24 @@ const treeStrokes = lsys({
 allStrokes.push(...treeStrokes);
 ```
 
-### 📦 Smart Batching (Ack-Based Flow Control)
+### 📦 Smart Batching (Automatic Throttling)
 
-Sending too fast triggers rate limits. The `sendStrokes` helper uses **ack-based flow control** — it waits for the server to acknowledge each batch before sending the next, with exponential backoff on `RATE_LIMITED` responses.
+Sending too fast triggers rate limits. The `sendStrokes` helper now has **smart throttling** built-in. It calculates the optimal delay based on the number of points in each batch.
 
 ```javascript
 import { sendStrokes } from './scripts/connection.mjs';
 
-// Send with default pacing (50ms between batches, 100 strokes/batch)
-await sendStrokes(ws, allStrokes);
-
-// Custom batch size and delay
+// Automatically throttles based on 2000 points/sec limit
 await sendStrokes(ws, allStrokes, {
-    batchSize: 50,   // Smaller batches
-    delayMs: 200     // 200ms between batches
+    batchSize: 100,
+    targetPointsPerSec: 2000 // Default, adjust if needed
 });
+```
+
+If you need a specific fixed delay, you can still force it:
+```javascript
+// Force 1 second delay between batches
+await sendStrokes(ws, allStrokes, { delayMs: 1000 });
 ```
 
 ## 4. Troubleshooting

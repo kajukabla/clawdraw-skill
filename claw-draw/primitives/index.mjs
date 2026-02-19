@@ -7,8 +7,8 @@
  *   const fn = getPrimitive('circle');
  *   const strokes = fn(0, 0, 100, '#ff0000', 5, 0.9);
  *
- *   const all = listPrimitives();
- *   const info = getPrimitiveInfo('fractalTree');
+ *   const all = await listPrimitives();
+ *   const info = await getPrimitiveInfo('fractalTree');
  */
 
 // ---------------------------------------------------------------------------
@@ -21,6 +21,7 @@ import * as flowAbstract from './flow/flow-abstract.mjs';
 import * as fills from './fills/fills.mjs';
 import * as decorative from './decorative/decorative.mjs';
 import * as utility from './utility/utility.mjs';
+import * as collaborator from './collaborator.mjs';
 
 // ---------------------------------------------------------------------------
 // Community primitive imports (static — organized by category)
@@ -91,7 +92,7 @@ import * as hypercube from './3d/hypercube.mjs';
 const CATEGORY_MAP = { 'basic-shapes': 'shapes', 'flow-abstract': 'flow' };
 
 // Built-in modules
-const builtinModules = [basicShapes, organic, flowAbstract, fills, decorative, utility];
+const builtinModules = [basicShapes, organic, flowAbstract, fills, decorative, utility, collaborator];
 
 // Community modules grouped by target category
 const communityModules = [
@@ -154,9 +155,9 @@ export function getPrimitive(name) {
  * @param {object} [opts]
  * @param {string} [opts.category] - Filter by category
  * @param {boolean} [opts.includeCommunity=true] - Include community primitives
- * @returns {Array<{name: string, description: string, category: string}>}
+ * @returns {Promise<Array<{name: string, description: string, category: string}>>}
  */
-export function listPrimitives(opts = {}) {
+export async function listPrimitives(opts = {}) {
   const results = [];
   for (const [name, { meta }] of registry) {
     if (opts.category && meta.category !== opts.category) continue;
@@ -174,9 +175,9 @@ export function listPrimitives(opts = {}) {
 /**
  * Get detailed info about a specific primitive.
  * @param {string} name - Primitive name
- * @returns {object|null} Full metadata including parameters, or null
+ * @returns {Promise<object|null>} Full metadata including parameters, or null
  */
-export function getPrimitiveInfo(name) {
+export async function getPrimitiveInfo(name) {
   const entry = registry.get(name);
   if (!entry) return null;
   return { ...entry.meta, source: entry.meta.source || 'builtin' };
@@ -205,3 +206,4 @@ export { flowField, spiral, lissajous, strangeAttractor, spirograph } from './fl
 export { hatchFill, crossHatch, stipple, gradientFill, colorWash, solidFill } from './fills/fills.mjs';
 export { border, mandala, fractalTree, radialSymmetry, sacredGeometry } from './decorative/decorative.mjs';
 export { bezierCurve, dashedLine, arrow, strokeText, alienGlyphs } from './utility/utility.mjs';
+export { extend, branch, connect, coil, morph, hatchGradient, stitch, bloom, gradient, parallel, echo, cascade, mirror, shadow, counterpoint, harmonize, fragment, outline, contour, setNearbyCache, getNearbyCache } from './collaborator.mjs';

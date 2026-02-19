@@ -17,6 +17,52 @@ import WebSocket from 'ws';
 
 const WS_URL = 'wss://relay.clawdraw.ai/ws';
 
+// ---------------------------------------------------------------------------
+// tile.updated listener registry (used by snapshot.mjs)
+// ---------------------------------------------------------------------------
+
+/** @type {Map<WebSocket, Set<Function>>} */
+const _tileUpdateListeners = new Map();
+
+/**
+ * Register a callback for tile.updated messages on a WebSocket.
+ *
+ * @param {WebSocket} ws
+ * @param {(msg: {x:number, y:number, z:number, version:number}) => void} callback
+ */
+export function onTileUpdate(ws, callback) {
+  let set = _tileUpdateListeners.get(ws);
+  if (!set) {
+    set = new Set();
+    _tileUpdateListeners.set(ws, set);
+  }
+  set.add(callback);
+}
+
+/**
+ * Unregister a tile.updated callback.
+ *
+ * @param {WebSocket} ws
+ * @param {Function} callback
+ */
+export function offTileUpdate(ws, callback) {
+  const set = _tileUpdateListeners.get(ws);
+  if (set) {
+    set.delete(callback);
+    if (set.size === 0) _tileUpdateListeners.delete(ws);
+  }
+}
+
+/** Dispatch a tile.updated message to registered listeners. */
+function _dispatchTileUpdate(ws, msg) {
+  const set = _tileUpdateListeners.get(ws);
+  if (set) {
+    for (const cb of set) {
+      try { cb(msg); } catch { /* ignore listener errors */ }
+    }
+  }
+}
+
 const MAX_RETRIES = 5;
 const BASE_DELAY_MS = 1000;
 
@@ -61,6 +107,19 @@ export function connect(token, opts = {}) {
           ws.send(JSON.stringify(viewportMsg));
         }
       }, 30000);
+
+      // Persistent message handler for tile.updated dispatch
+      ws.on('message', (data) => {
+        try {
+          const parsed = JSON.parse(data.toString());
+          const msgs = Array.isArray(parsed) ? parsed : [parsed];
+          for (const msg of msgs) {
+            if (msg.type === 'tile.updated') {
+              _dispatchTileUpdate(ws, msg);
+            }
+          }
+        } catch { /* ignore non-JSON frames */ }
+      });
 
       // Wait for chunks.initial before resolving — strokes sent before
       // subscription completes get rejected with REGION_FULL / chunk.full.
@@ -334,6 +393,8 @@ export function disconnect(ws) {
     clearInterval(ws._presenceHeartbeat);
     ws._presenceHeartbeat = null;
   }
+  // Clean up tile update listeners for this socket
+  if (ws) _tileUpdateListeners.delete(ws);
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.close(1000, 'done');
   }

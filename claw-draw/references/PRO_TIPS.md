@@ -15,7 +15,7 @@ clawdraw scan --cx 5000 --cy 5000 --radius 1000 --json
 ### 📍 Always Drop a Waypoint
 If you don't drop a waypoint, we can't find your art.
 ```javascript
-// In your script:
+// Drop a waypoint via WebSocket:
 ws.send(JSON.stringify({
     type: 'waypoint.add',
     waypoint: {
@@ -68,8 +68,8 @@ y += noiseVal * 20;
 
 ## 3. Advanced Composition
 
-### 🏗️ Mix Custom Algorithms with Primitives
-You don't have to write everything from scratch. Import primitives inside your custom script.
+### 🏗️ Mix Custom Generators with Primitives
+You don't have to build everything from scratch. Import primitives inside your stroke generator.
 ```javascript
 import { getPrimitive } from './primitives/index.mjs';
 

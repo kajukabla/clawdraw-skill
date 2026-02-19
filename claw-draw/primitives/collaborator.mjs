@@ -5,7 +5,8 @@
  * before calling), apply geometric transforms, and return stroke arrays.
  */
 
-import { makeStroke, splitIntoStrokes, lerpColor, hexToRgb, rgbToHex, noise2d, clipLineToRect, getPressureForStyle, samplePalette, clamp, lerp } from './helpers.mjs';
+import { makeStroke, splitIntoStrokes, lerpColor, hexToRgb, rgbToHex, noise2d, clipLineToRect, getPressureForStyle, samplePalette, clamp, lerp, hslToHex } from './helpers.mjs';
+import { classifyEndpoints, buildDensityMap, detectEnclosedRegions, buildAttractors, detectClosedShapes, pointInPolygon, clipLineToPolygon, buildSDF, shoelaceArea, extractPlanarFaces } from './spatial.mjs';
 
 // ---------------------------------------------------------------------------
 // Nearby cache — populated by CLI before calling behaviors
@@ -467,6 +468,70 @@ export const METADATA = [
       style: { type: 'string', default: 'hatch', options: ['hatch', 'crosshatch'], description: 'Hatching style' },
       layers: { type: 'number', default: 1, min: 1, max: 3, description: 'Number of hatch layers' },
       intensity: { type: 'number', default: 0.7, min: 0, max: 1, description: 'Shading intensity' },
+    },
+  },
+  // SPATIAL
+  {
+    name: 'physarum', description: 'Grow tube networks connecting exterior edges (slime mold simulation)', category: 'collaborator',
+    parameters: {
+      nearX: { type: 'number', default: 0, description: 'Center X' },
+      nearY: { type: 'number', default: 0, description: 'Center Y' },
+      radius: { type: 'number', default: 300, min: 50, max: 2000, description: 'Search radius' },
+      agents: { type: 'number', default: 30, min: 5, max: 100, description: 'Number of virtual agents' },
+      steps: { type: 'number', default: 50, min: 10, max: 200, description: 'Simulation steps' },
+      trailWidth: { type: 'number', default: 3, min: 1, max: 15, description: 'Trail stroke width' },
+      color: { type: 'string', default: '#ffffff', description: 'Trail color' },
+    },
+  },
+  {
+    name: 'attractorBranch', description: 'Grow fractal branches outward from exterior edge points', category: 'collaborator',
+    parameters: {
+      nearX: { type: 'number', default: 0, description: 'Center X' },
+      nearY: { type: 'number', default: 0, description: 'Center Y' },
+      radius: { type: 'number', default: 200, min: 50, max: 1000, description: 'Search radius' },
+      length: { type: 'number', default: 30, min: 5, max: 200, description: 'Branch length' },
+      generations: { type: 'number', default: 3, min: 1, max: 6, description: 'Branch depth' },
+      color: { type: 'string', default: '#ffffff', description: 'Branch color' },
+      brushSize: { type: 'number', default: 4, min: 1, max: 15, description: 'Brush size' },
+    },
+  },
+  {
+    name: 'attractorFlow', description: 'Flow field biased toward exterior attractors, repelled by dense areas', category: 'collaborator',
+    parameters: {
+      nearX: { type: 'number', default: 0, description: 'Center X' },
+      nearY: { type: 'number', default: 0, description: 'Center Y' },
+      radius: { type: 'number', default: 300, min: 50, max: 2000, description: 'Search radius' },
+      lines: { type: 'number', default: 20, min: 3, max: 80, description: 'Number of flow lines' },
+      steps: { type: 'number', default: 40, min: 10, max: 150, description: 'Steps per line' },
+      color: { type: 'string', default: '#ffffff', description: 'Line color' },
+      brushSize: { type: 'number', default: 3, min: 1, max: 15, description: 'Brush size' },
+    },
+  },
+  {
+    name: 'interiorFill', description: 'Detect and fill enclosed regions with hatch/stipple/wash', category: 'collaborator',
+    parameters: {
+      nearX: { type: 'number', default: 0, description: 'Center X' },
+      nearY: { type: 'number', default: 0, description: 'Center Y' },
+      radius: { type: 'number', default: 300, min: 50, max: 2000, description: 'Search radius' },
+      style: { type: 'string', default: 'hatch', options: ['hatch', 'stipple', 'wash'], description: 'Fill style' },
+      density: { type: 'number', default: 0.5, min: 0.1, max: 1, description: 'Fill density' },
+      color: { type: 'string', default: '#ffffff', description: 'Fill color' },
+      brushSize: { type: 'number', default: 2, min: 1, max: 10, description: 'Brush size' },
+    },
+  },
+  {
+    name: 'vineGrowth',
+    description: 'Grow organic branching vines from exterior endpoints with edge-following and color drift',
+    category: 'collaborator',
+    parameters: {
+      nearX: { type: 'number', default: 0, description: 'Center X' },
+      nearY: { type: 'number', default: 0, description: 'Center Y' },
+      radius: { type: 'number', default: 300, min: 50, max: 2000, description: 'Search radius' },
+      maxBranches: { type: 'number', default: 200, min: 5, max: 2000, description: 'Max vine branches' },
+      stepLen: { type: 'number', default: 8, min: 3, max: 30, description: 'Growth step length' },
+      branchProb: { type: 'number', default: 0.08, min: 0.01, max: 0.3, description: 'Branch probability per step' },
+      mode: { type: 'string', default: 'grow', options: ['grow', 'fill'], description: 'Grow outward or fill inward' },
+      driftRange: { type: 'number', default: 0.4, min: 0, max: 1, description: 'Color drift intensity (0=none, 1=full)' },
     },
   },
 ];
@@ -1436,4 +1501,793 @@ export function contour(source, lightAngle, style, layers, intensity) {
   }
 
   return allStrokes;
+}
+
+// ---------------------------------------------------------------------------
+// 20. physarum — Slime mold tube network connecting exterior edges
+// ---------------------------------------------------------------------------
+
+export function physarum(nearX, nearY, radius, agents, steps, trailWidth, color) {
+  nearX = nearX || 0;
+  nearY = nearY || 0;
+  radius = radius || 300;
+  agents = clamp(agents || 30, 5, 100);
+  steps = clamp(steps || 50, 10, 200);
+  trailWidth = trailWidth || 3;
+  color = color || '#ffffff';
+
+  const nc = _nearbyCache;
+  if (!nc || !nc.strokes || nc.strokes.length === 0) return [];
+
+  // Build attractors from exterior endpoints
+  const attractors = buildAttractors(nc.strokes, Math.min(agents, 20));
+  if (attractors.length === 0) return [];
+
+  // Build density map for pheromone-like trail avoidance
+  const bounds = {
+    minX: nearX - radius, minY: nearY - radius,
+    maxX: nearX + radius, maxY: nearY + radius,
+  };
+  const density = buildDensityMap(nc.strokes, bounds, 32);
+
+  // Initialize virtual agents at center with random directions
+  const agentState = [];
+  for (let i = 0; i < agents; i++) {
+    const angle = (i / agents) * Math.PI * 2 + (noise2d(i * 0.7, 0.3) - 0.5) * 0.5;
+    agentState.push({
+      x: nearX + (noise2d(i * 0.3, 1.7) - 0.5) * radius * 0.3,
+      y: nearY + (noise2d(1.7, i * 0.3) - 0.5) * radius * 0.3,
+      angle,
+      trail: [],
+    });
+  }
+
+  const SENSOR_ANGLE = 22.5 * Math.PI / 180;
+  const SENSOR_DIST = radius * 0.08;
+  const STEP_SIZE = radius * 0.015;
+
+  // Simulate
+  for (let step = 0; step < steps; step++) {
+    for (const agent of agentState) {
+      // Sense at three directions: ahead, left, right
+      const senseAhead = senseAttractors(agent.x, agent.y, agent.angle, SENSOR_DIST, attractors, density);
+      const senseLeft = senseAttractors(agent.x, agent.y, agent.angle - SENSOR_ANGLE, SENSOR_DIST, attractors, density);
+      const senseRight = senseAttractors(agent.x, agent.y, agent.angle + SENSOR_ANGLE, SENSOR_DIST, attractors, density);
+
+      // Turn toward strongest signal
+      if (senseLeft > senseAhead && senseLeft > senseRight) {
+        agent.angle -= SENSOR_ANGLE * 0.5;
+      } else if (senseRight > senseAhead && senseRight > senseLeft) {
+        agent.angle += SENSOR_ANGLE * 0.5;
+      }
+      // Add small random jitter
+      agent.angle += (noise2d(step * 0.1, agent.x * 0.01) - 0.5) * 0.3;
+
+      // Move
+      agent.x += Math.cos(agent.angle) * STEP_SIZE;
+      agent.y += Math.sin(agent.angle) * STEP_SIZE;
+
+      // Clamp to radius
+      const dx = agent.x - nearX;
+      const dy = agent.y - nearY;
+      const d = Math.sqrt(dx * dx + dy * dy);
+      if (d > radius) {
+        agent.x = nearX + (dx / d) * radius;
+        agent.y = nearY + (dy / d) * radius;
+        agent.angle += Math.PI * 0.5; // bounce
+      }
+
+      agent.trail.push({ x: agent.x, y: agent.y });
+    }
+  }
+
+  // Convert trails to strokes, splitting into segments
+  const strokes = [];
+  for (const agent of agentState) {
+    if (agent.trail.length < 3) continue;
+    // Split trail into reasonable segments
+    const maxSegLen = 30;
+    for (let i = 0; i < agent.trail.length; i += maxSegLen) {
+      const seg = agent.trail.slice(i, Math.min(i + maxSegLen + 1, agent.trail.length));
+      if (seg.length >= 2) {
+        const t = i / agent.trail.length;
+        const opacity = clamp(0.4 + t * 0.4, 0.3, 0.85);
+        strokes.push(makeStroke(seg, color, trailWidth, opacity, 'taper'));
+      }
+    }
+  }
+
+  return strokes;
+}
+
+function senseAttractors(x, y, angle, dist, attractors, density) {
+  const sx = x + Math.cos(angle) * dist;
+  const sy = y + Math.sin(angle) * dist;
+  let signal = 0;
+
+  // Attractor pull
+  for (const a of attractors) {
+    const dx = a.x - sx;
+    const dy = a.y - sy;
+    const d2 = dx * dx + dy * dy;
+    if (d2 < 1) continue;
+    signal += a.strength / (1 + d2 * 0.001);
+  }
+
+  // Avoid dense areas
+  const d = density.get(sx, sy);
+  signal -= d * 2;
+
+  return signal;
+}
+
+// ---------------------------------------------------------------------------
+// 21. attractorBranch — Grow fractal branches from exterior edge points
+// ---------------------------------------------------------------------------
+
+export function attractorBranch(nearX, nearY, radius, length, generations, color, brushSize) {
+  nearX = nearX || 0;
+  nearY = nearY || 0;
+  radius = radius || 200;
+  length = length || 30;
+  generations = clamp(generations || 3, 1, 6);
+  color = color || '#ffffff';
+  brushSize = brushSize || 4;
+
+  const nc = _nearbyCache;
+  if (!nc || !nc.strokes || nc.strokes.length === 0) return [];
+
+  const attractors = buildAttractors(nc.strokes, 10);
+  if (attractors.length === 0) return [];
+
+  const strokes = [];
+  const branchAngle = 30 * Math.PI / 180;
+  const shrink = 0.7;
+
+  function growBranch(x, y, angle, len, gen, size) {
+    if (gen <= 0 || len < 3) return;
+
+    const nPts = Math.max(8, Math.round(len / 3));
+    const pts = [];
+    for (let i = 0; i <= nPts; i++) {
+      const t = i / nPts;
+      pts.push({
+        x: x + Math.cos(angle) * len * t + (noise2d(gen * 3.7, t * 5) - 0.5) * len * 0.1,
+        y: y + Math.sin(angle) * len * t + (noise2d(t * 5, gen * 3.7) - 0.5) * len * 0.1,
+      });
+    }
+
+    const opacity = clamp(0.9 - (generations - gen) * 0.15, 0.3, 0.9);
+    strokes.push(makeStroke(pts, color, size, opacity, 'taper'));
+
+    const endX = x + Math.cos(angle) * len;
+    const endY = y + Math.sin(angle) * len;
+
+    // Branch left and right
+    growBranch(endX, endY, angle - branchAngle, len * shrink, gen - 1, size * 0.8);
+    growBranch(endX, endY, angle + branchAngle, len * shrink, gen - 1, size * 0.8);
+  }
+
+  for (const attr of attractors) {
+    const dx = attr.x - nearX;
+    const dy = attr.y - nearY;
+    if (Math.sqrt(dx * dx + dy * dy) > radius) continue;
+
+    const angle = Math.atan2(attr.direction.y, attr.direction.x);
+    growBranch(attr.x, attr.y, angle, length, generations, brushSize);
+  }
+
+  return strokes;
+}
+
+// ---------------------------------------------------------------------------
+// 22. attractorFlow — Flow field biased toward exterior attractors
+// ---------------------------------------------------------------------------
+
+export function attractorFlow(nearX, nearY, radius, lines, steps, color, brushSize) {
+  nearX = nearX || 0;
+  nearY = nearY || 0;
+  radius = radius || 300;
+  lines = clamp(lines || 20, 3, 80);
+  steps = clamp(steps || 40, 10, 150);
+  color = color || '#ffffff';
+  brushSize = brushSize || 3;
+
+  const nc = _nearbyCache;
+  if (!nc || !nc.strokes || nc.strokes.length === 0) return [];
+
+  const attractors = buildAttractors(nc.strokes, 15);
+  if (attractors.length === 0) return [];
+
+  const bounds = {
+    minX: nearX - radius, minY: nearY - radius,
+    maxX: nearX + radius, maxY: nearY + radius,
+  };
+  const density = buildDensityMap(nc.strokes, bounds, 32);
+
+  const stepSize = radius * 0.02;
+  const strokes = [];
+
+  for (let i = 0; i < lines; i++) {
+    // Start lines distributed in a ring around center
+    const startAngle = (i / lines) * Math.PI * 2;
+    const startR = radius * (0.2 + noise2d(i * 0.7, 0.5) * 0.3);
+    let x = nearX + Math.cos(startAngle) * startR;
+    let y = nearY + Math.sin(startAngle) * startR;
+
+    const pts = [{ x, y }];
+
+    for (let s = 0; s < steps; s++) {
+      // Compute flow direction: sum of attractor pulls minus density repulsion
+      let fx = 0, fy = 0;
+
+      for (const a of attractors) {
+        const adx = a.x - x;
+        const ady = a.y - y;
+        const d2 = adx * adx + ady * ady;
+        if (d2 < 1) continue;
+        const d = Math.sqrt(d2);
+        fx += (adx / d) * a.strength / (1 + d * 0.01);
+        fy += (ady / d) * a.strength / (1 + d * 0.01);
+      }
+
+      // Repel from dense areas using density gradient approximation
+      const gx = density.get(x + 5, y) - density.get(x - 5, y);
+      const gy = density.get(x, y + 5) - density.get(x, y - 5);
+      fx -= gx * 3;
+      fy -= gy * 3;
+
+      // Add curl noise for organic feel
+      const noiseAngle = noise2d(x * 0.005, y * 0.005) * Math.PI * 2;
+      fx += Math.cos(noiseAngle) * 0.3;
+      fy += Math.sin(noiseAngle) * 0.3;
+
+      // Normalize and step
+      const fLen = Math.sqrt(fx * fx + fy * fy);
+      if (fLen < 1e-6) break;
+      x += (fx / fLen) * stepSize;
+      y += (fy / fLen) * stepSize;
+
+      // Check bounds
+      const dx = x - nearX;
+      const dy = y - nearY;
+      if (dx * dx + dy * dy > radius * radius) break;
+
+      pts.push({ x, y });
+    }
+
+    if (pts.length >= 3) {
+      const opacity = clamp(0.5 + noise2d(i * 1.3, 0.7) * 0.3, 0.3, 0.85);
+      strokes.push(makeStroke(pts, color, brushSize, opacity, 'taper'));
+    }
+  }
+
+  return strokes;
+}
+
+// ---------------------------------------------------------------------------
+// 23. interiorFill — Fill enclosed regions with hatch/stipple/wash
+// ---------------------------------------------------------------------------
+
+export function interiorFill(nearX, nearY, radius, style, density, color, brushSize) {
+  nearX = nearX || 0;
+  nearY = nearY || 0;
+  radius = radius || 300;
+  style = style || 'hatch';
+  density = density !== undefined ? clamp(density, 0.1, 1) : 0.5;
+  brushSize = brushSize || 2;
+
+  // Default color: prefer dominant palette color from nearby data, fall back to white
+  if (!color || color === '#ffffff') {
+    const nc0 = _nearbyCache;
+    if (nc0 && nc0.summary && nc0.summary.palette && nc0.summary.palette.length > 0) {
+      color = nc0.summary.palette[0];
+    } else {
+      color = color || '#ffffff';
+    }
+  }
+
+  const nc = _nearbyCache;
+  if (!nc || !nc.strokes || nc.strokes.length === 0) return [];
+
+  const bounds = {
+    minX: nearX - radius, minY: nearY - radius,
+    maxX: nearX + radius, maxY: nearY + radius,
+  };
+
+  // Try topology-aware shape detection first (uses relay topology block)
+  let shapes = [];
+  if (nc.topology) {
+    shapes = detectClosedShapes(nc);
+  }
+
+  // PSLG face extraction — finds ALL enclosed regions including self-intersections
+  if (shapes.length === 0) {
+    shapes = extractPlanarFaces(nc.strokes, bounds);
+    // Carry stroke color through for single-stroke faces
+    for (const face of shapes) {
+      if (face.strokeIds.length === 1) {
+        const src = nc.strokes.find(s => s.id === face.strokeIds[0]);
+        if (src) face.color = src.color || (src.brush && src.brush.color);
+      }
+    }
+  }
+
+  if (shapes.length === 0) return [];
+
+  const strokes = [];
+
+  for (const shape of shapes) {
+    const polygon = shape.polygon;
+    if (!polygon || polygon.length < 3) continue;
+
+    // Per-shape color: prefer shape's own color (from self-closing detection), then global color
+    const shapeColor = shape.color || color;
+
+    const cx = shape.centroid.x;
+    const cy = shape.centroid.y;
+
+    // Compute bounding box of the polygon
+    let pMinX = Infinity, pMaxX = -Infinity, pMinY = Infinity, pMaxY = -Infinity;
+    for (const p of polygon) {
+      if (p.x < pMinX) pMinX = p.x;
+      if (p.x > pMaxX) pMaxX = p.x;
+      if (p.y < pMinY) pMinY = p.y;
+      if (p.y > pMaxY) pMaxY = p.y;
+    }
+    const polyW = pMaxX - pMinX;
+    const polyH = pMaxY - pMinY;
+    const diagonal = Math.sqrt(polyW * polyW + polyH * polyH);
+
+    if (style === 'hatch') {
+      // Generate hatch lines with gradient: stroke color → darker shade, fading opacity
+      const spacing = lerp(15, 4, density);
+      const angle = 45 * Math.PI / 180;
+      const cos = Math.cos(angle);
+      const sin = Math.sin(angle);
+      const darkShade = darkenColor(shapeColor, 0.4);
+      const totalSteps = Math.max(1, Math.ceil(2 * diagonal / spacing));
+      let stepIndex = 0;
+
+      for (let d = -diagonal; d < diagonal; d += spacing) {
+        const t = stepIndex / totalSteps; // 0 → 1 across the shape
+        const hatchColor = lerpColor(shapeColor, darkShade, t);
+        const hatchOpacity = lerp(0.7, 0.4, t);
+
+        const lx0 = cx + (-sin) * d - cos * diagonal;
+        const ly0 = cy + cos * d - sin * diagonal;
+        const lx1 = cx + (-sin) * d + cos * diagonal;
+        const ly1 = cy + cos * d + sin * diagonal;
+
+        // Clip hatch line to polygon boundary
+        const segments = clipLineToPolygon({ x: lx0, y: ly0 }, { x: lx1, y: ly1 }, polygon);
+        for (const [segStart, segEnd] of segments) {
+          const segLen = Math.sqrt((segEnd.x - segStart.x) ** 2 + (segEnd.y - segStart.y) ** 2);
+          if (segLen > 3) {
+            strokes.push(makeStroke(
+              [segStart, segEnd],
+              hatchColor, brushSize, hatchOpacity, 'flat'
+            ));
+          }
+        }
+        stepIndex++;
+      }
+    } else if (style === 'stipple') {
+      // Generate random dots — only emit if inside polygon
+      const count = Math.round((shape.area || polyW * polyH) * density * 0.01);
+      for (let i = 0; i < count; i++) {
+        const px = pMinX + noise2d(i * 0.7, cx * 0.01) * polyW;
+        const py = pMinY + noise2d(cx * 0.01, i * 0.7) * polyH;
+        if (!pointInPolygon(px, py, polygon)) continue;
+        strokes.push(makeStroke(
+          [{ x: px, y: py }, { x: px + 1, y: py + 1 }],
+          shapeColor, brushSize, clamp(0.3 + noise2d(i * 0.3, 0.5) * 0.4, 0.2, 0.7)
+        ));
+      }
+    } else if (style === 'wash') {
+      // Generate overlapping soft strokes — start points checked against polygon
+      const regionRadius = Math.max(polyW, polyH) / 2;
+      const count = Math.round(5 + density * 10);
+      for (let i = 0; i < count; i++) {
+        const angle = noise2d(i * 0.5, cy * 0.01) * Math.PI * 2;
+        const len = regionRadius * (0.5 + noise2d(i * 0.3, 0.7) * 0.5);
+        const startX = cx + (noise2d(i * 0.7, 1.3) - 0.5) * regionRadius * 0.5;
+        const startY = cy + (noise2d(1.3, i * 0.7) - 0.5) * regionRadius * 0.5;
+
+        // Only start inside the polygon
+        if (!pointInPolygon(startX, startY, polygon)) continue;
+
+        const pts = [];
+        const nPts = 15;
+        for (let j = 0; j <= nPts; j++) {
+          const t = j / nPts;
+          const wx = startX + Math.cos(angle) * len * t + (noise2d(j * 0.3, i * 0.7) - 0.5) * 10;
+          const wy = startY + Math.sin(angle) * len * t + (noise2d(i * 0.7, j * 0.3) - 0.5) * 10;
+          // Stop if waypoint exits the polygon
+          if (!pointInPolygon(wx, wy, polygon)) break;
+          pts.push({ x: wx, y: wy });
+        }
+
+        if (pts.length >= 2) {
+          strokes.push(makeStroke(pts, shapeColor, brushSize * 3, 0.15 + density * 0.2));
+        }
+      }
+    }
+  }
+
+  return strokes;
+}
+
+// ---------------------------------------------------------------------------
+// 24. vineGrowth — Organic branching vines from exterior endpoints
+// ---------------------------------------------------------------------------
+
+/**
+ * Grow organic vine-like branches from exterior endpoints of existing strokes.
+ *
+ * Combines SDF edge-following, stochastic branching, HSL color drift from
+ * source stroke, and self-avoidance to produce organic growth patterns.
+ *
+ * @param {number} nearX - Center X of search area
+ * @param {number} nearY - Center Y of search area
+ * @param {number} radius - Search radius
+ * @param {number} maxBranches - Maximum total vine branches
+ * @param {number} stepLen - Step distance per growth tick
+ * @param {number} branchProb - Base branching probability per step
+ * @param {string} mode - 'grow' (outward from endpoints) or 'fill' (inward from face boundaries)
+ * @param {number} driftRange - Color drift intensity (0=none, 1=wild)
+ * @returns {Array} Array of stroke objects
+ */
+export function vineGrowth(nearX, nearY, radius, maxBranches, stepLen, branchProb, mode, driftRange) {
+  nearX = nearX || 0;
+  nearY = nearY || 0;
+  radius = radius || 300;
+  maxBranches = clamp(maxBranches || 200, 5, 2000);
+  stepLen = clamp(stepLen || 8, 3, 30);
+  branchProb = clamp(branchProb || 0.08, 0.01, 0.3);
+  mode = mode || 'grow';
+  driftRange = driftRange !== undefined ? clamp(driftRange, 0, 1) : 0.4;
+
+  const nc = _nearbyCache;
+  if (!nc || !nc.strokes || nc.strokes.length === 0) return [];
+
+  const bounds = {
+    minX: nearX - radius, minY: nearY - radius,
+    maxX: nearX + radius, maxY: nearY + radius,
+  };
+
+  const sdf = buildSDF(nc.strokes, bounds, 120);
+  const densityMap = buildDensityMap(nc.strokes, bounds, 32);
+
+  // Inline RGB → HSL conversion
+  function _rgbToHsl(r, g, b) {
+    r /= 255; g /= 255; b /= 255;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b);
+    let h = 0, s = 0;
+    const l = (max + min) / 2;
+    if (max !== min) {
+      const d = max - min;
+      s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+      if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+      else if (max === g) h = ((b - r) / d + 2) / 6;
+      else h = ((r - g) / d + 4) / 6;
+    }
+    return { h: h * 360, s: s * 100, l: l * 100 };
+  }
+
+  // --- Constants ---
+  const TIP_BUDGET = 250;
+  const MAX_GLOBAL_ITERATIONS = 3000;
+  const EDGE_THRESHOLD = 25;
+  const EDGE_FOLLOW_BLEND = 0.7;
+  const AVOID_RADIUS = 18;
+  const NOISE_SCALE = 0.008;
+  const NOISE_STRENGTH = 0.6;
+  const MAX_GENERATION = 6;
+  const SIZE_SHRINK = 0.82;
+  const COLLISION_DIST = stepLen * 1.5;
+  const COLOR_GRACE_DIST = stepLen * 30;
+
+  const strokes = [];
+  const tips = [];
+  let totalBranches = 0;
+
+  // Spatial hash grid for cross-tip avoidance (replaces O(n²) allVinePoints array)
+  const VP_CELL = AVOID_RADIUS * 2;
+  const vineGrid = new Map(); // "gx,gy" → [{x, y, tipIdx}]
+  let vinePointCounter = 0;
+
+  function addVinePoint(x, y, tipIdx) {
+    const key = `${Math.floor(x / VP_CELL)},${Math.floor(y / VP_CELL)}`;
+    let cell = vineGrid.get(key);
+    if (!cell) { cell = []; vineGrid.set(key, cell); }
+    cell.push({ x, y, tipIdx });
+  }
+
+  function* nearbyVinePoints(x, y) {
+    const gx = Math.floor(x / VP_CELL);
+    const gy = Math.floor(y / VP_CELL);
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        const cell = vineGrid.get(`${gx + dx},${gy + dy}`);
+        if (cell) yield* cell;
+      }
+    }
+  }
+
+  // Diagnostic stats
+  const stats = { seeds: 0, branches: 0, deaths: { sdf: 0, boundary: 0, collision: 0, stalled: 0, budget: 0 }, maxSteps: 0, totalPoints: 0 };
+
+  // --- Seed tips ---
+  if (mode === 'fill') {
+    const faces = extractPlanarFaces(nc.strokes, bounds);
+    for (const face of faces) {
+      if (totalBranches >= maxBranches) break;
+      const polygon = face.polygon;
+      if (!polygon || polygon.length < 3) continue;
+
+      // Compute centroid
+      let cx = 0, cy = 0;
+      for (const p of polygon) { cx += p.x; cy += p.y; }
+      cx /= polygon.length;
+      cy /= polygon.length;
+
+      // Get color from nearby stroke
+      const nearStroke = findNearestStroke(cx, cy, nc);
+      const srcColor = getStrokeColor(nearStroke);
+      const srcSize = getStrokeBrushSize(nearStroke);
+      const rgb = hexToRgb(srcColor);
+      const hsl = _rgbToHsl(rgb.r, rgb.g, rgb.b);
+
+      // Seed tips along polygon boundary pointing inward
+      const tipCount = Math.min(Math.ceil(polygon.length / 3), maxBranches - totalBranches);
+      const tipStep = Math.max(1, Math.floor(polygon.length / tipCount));
+      for (let i = 0; i < polygon.length && totalBranches < maxBranches; i += tipStep) {
+        const p = polygon[i];
+        const angle = Math.atan2(cy - p.y, cx - p.x);
+        tips.push({
+          x: p.x, y: p.y, angle,
+          sourceAngle: angle,
+          h: hsl.h, s: hsl.s, l: hsl.l,
+          brushSize: srcSize * 0.8,
+          generation: 0, distFromOrigin: 0, stepCount: 0,
+          stepsRemaining: TIP_BUDGET,
+          points: [{ x: p.x, y: p.y }],
+          alive: true, cooldown: 0,
+        });
+        totalBranches++;
+      }
+    }
+  } else {
+    // Grow mode — seed from EVERY endpoint (both start + end of every stroke)
+    for (const stroke of nc.strokes) {
+      if (totalBranches >= maxBranches) break;
+      const pts = (stroke.path || stroke.points || []).map(p => ({ x: p.x, y: p.y }));
+      if (pts.length < 2) continue;
+
+      const srcColor = getStrokeColor(stroke);
+      const srcSize = getStrokeBrushSize(stroke);
+      const rgb = hexToRgb(srcColor);
+      const hsl = _rgbToHsl(rgb.r, rgb.g, rgb.b);
+
+      // Seed both start and end
+      const endpoints = [
+        { pt: pts[0], angle: Math.atan2(pts[1].y - pts[0].y, pts[1].x - pts[0].x) + Math.PI }, // start — flip outward
+        { pt: pts[pts.length - 1], angle: Math.atan2(pts[pts.length - 1].y - pts[pts.length - 2].y, pts[pts.length - 1].x - pts[pts.length - 2].x) }, // end — already outward
+      ];
+
+      for (const ep of endpoints) {
+        if (totalBranches >= maxBranches) break;
+        tips.push({
+          x: ep.pt.x, y: ep.pt.y, angle: ep.angle,
+          sourceAngle: ep.angle,
+          h: hsl.h, s: hsl.s, l: hsl.l,
+          brushSize: srcSize * 0.8,
+          generation: 0, distFromOrigin: 0, stepCount: 0,
+          stepsRemaining: TIP_BUDGET,
+          points: [{ x: ep.pt.x, y: ep.pt.y }],
+          alive: true, cooldown: 0,
+        });
+        totalBranches++;
+      }
+    }
+  }
+
+  if (tips.length === 0) return [];
+  stats.seeds = tips.length;
+
+  // --- Growth loop (per-tip step budget) ---
+  let globalIterations = 0;
+  while (globalIterations < MAX_GLOBAL_ITERATIONS && tips.some(t => t.alive && t.stepsRemaining > 0)) {
+    globalIterations++;
+
+    for (let ti = 0; ti < tips.length; ti++) {
+      const tip = tips[ti];
+      if (!tip.alive || tip.stepsRemaining <= 0) continue;
+
+      tip.stepsRemaining--;
+      tip.stepCount++;
+
+      // 1. Base direction — blend between source tangent (momentum) and current heading
+      // First ~12 steps strongly follow the source stroke direction, then gradually loosen
+      const MOMENTUM_STEPS = 12;
+      const momentum = tip.stepCount < MOMENTUM_STEPS
+        ? 1 - (tip.stepCount / MOMENTUM_STEPS) * 0.8  // 1.0 → 0.2 over 12 steps
+        : 0;
+      const srcDx = Math.cos(tip.sourceAngle);
+      const srcDy = Math.sin(tip.sourceAngle);
+      const curDx = Math.cos(tip.angle);
+      const curDy = Math.sin(tip.angle);
+      let dx = srcDx * momentum + curDx * (1 - momentum);
+      let dy = srcDy * momentum + curDy * (1 - momentum);
+
+      // 2. SDF edge interaction (unsigned distance — open polylines have unreliable sign)
+      const dist = Math.abs(sdf.query(tip.x, tip.y));
+
+      // Kill if overlapping a stroke (after momentum phase grace period)
+      if (tip.stepCount > 15 && dist < stepLen * 0.8) {
+        tip.points.pop();
+        tip.alive = false;
+        stats.deaths.sdf++;
+        continue;
+      }
+
+      if (dist < EDGE_THRESHOLD) {
+        const grad = sdf.gradient(tip.x, tip.y);
+        // Tangent = perpendicular to gradient
+        const tx = -grad.y;
+        const ty = grad.x;
+        // Blend toward tangent proportional to proximity
+        const blendFactor = (1 - dist / EDGE_THRESHOLD) * EDGE_FOLLOW_BLEND;
+        // Pick tangent direction closest to current heading
+        const dot = dx * tx + dy * ty;
+        const signT = dot >= 0 ? 1 : -1;
+        dx = dx * (1 - blendFactor) + signT * tx * blendFactor;
+        dy = dy * (1 - blendFactor) + signT * ty * blendFactor;
+
+        // Stronger repulsion when close to strokes (always push away)
+        if (dist < stepLen * 3) {
+          const repel = (1 - dist / (stepLen * 3)) * 0.8;
+          dx += grad.x * repel;
+          dy += grad.y * repel;
+        }
+      }
+
+      // 3. Curl noise
+      const noiseAngle = noise2d(tip.x * NOISE_SCALE, tip.y * NOISE_SCALE) * Math.PI * 2;
+      dx += Math.cos(noiseAngle) * NOISE_STRENGTH;
+      dy += Math.sin(noiseAngle) * NOISE_STRENGTH;
+
+      // 4. Cross-tip avoidance (spatial hash, skip own trail)
+      let avoidX = 0, avoidY = 0;
+      for (const vp of nearbyVinePoints(tip.x, tip.y)) {
+        if (vp.tipIdx === ti) continue; // don't avoid own trail
+        const adx = tip.x - vp.x;
+        const ady = tip.y - vp.y;
+        const ad2 = adx * adx + ady * ady;
+        if (ad2 < AVOID_RADIUS * AVOID_RADIUS && ad2 > 1) {
+          const ad = Math.sqrt(ad2);
+          avoidX += (adx / ad) * (1 - ad / AVOID_RADIUS);
+          avoidY += (ady / ad) * (1 - ad / AVOID_RADIUS);
+        }
+      }
+      dx += avoidX * 0.5;
+      dy += avoidY * 0.5;
+
+      // 5. Density repulsion
+      const localDensity = densityMap.get(tip.x, tip.y);
+      if (localDensity > 0.3) {
+        dx += (noise2d(tip.x * 0.02, globalIterations * 0.1) - 0.5) * localDensity * 0.8;
+        dy += (noise2d(globalIterations * 0.1, tip.y * 0.02) - 0.5) * localDensity * 0.8;
+      }
+
+      // 6. Normalize and step forward
+      const dLen = Math.sqrt(dx * dx + dy * dy);
+      if (dLen < 1e-6) { tip.alive = false; stats.deaths.stalled++; continue; }
+      dx /= dLen;
+      dy /= dLen;
+
+      tip.x += dx * stepLen;
+      tip.y += dy * stepLen;
+      tip.angle = Math.atan2(dy, dx);
+      tip.distFromOrigin += stepLen;
+      tip.points.push({ x: tip.x, y: tip.y });
+
+      // Record for cross-tip avoidance (every 3rd point, spatial hash)
+      vinePointCounter++;
+      if (vinePointCounter % 3 === 0) {
+        addVinePoint(tip.x, tip.y, ti);
+      }
+
+      // 7. Color drift (HSL random walk) — grace period before drift begins
+      const rawDistRatio = clamp(tip.distFromOrigin / (radius * 1.5), 0, 1);
+      const distRatio = tip.distFromOrigin < COLOR_GRACE_DIST ? 0 : rawDistRatio;
+      const walkWidth = driftRange * distRatio;
+      const colorNoise = noise2d(tip.x * 0.01 + globalIterations * 0.3, tip.y * 0.01);
+      tip.h = (tip.h + (colorNoise - 0.5) * walkWidth * 60 + 360) % 360;
+      tip.s = clamp(tip.s + (colorNoise - 0.5) * walkWidth * 15, 10, 95);
+      // Slight upward bias (+0.3) prevents vines from going dark too quickly
+      tip.l = clamp(tip.l + (noise2d(globalIterations * 0.3, tip.x * 0.01) - 0.2) * walkWidth * 10, 35, 85);
+
+      // 8. Branch decision (suppressed during momentum phase)
+      if (tip.cooldown > 0) {
+        tip.cooldown--;
+      } else if (tip.stepCount <= MOMENTUM_STEPS) {
+        // No branching during momentum phase — let vine establish direction first
+      } else {
+        const sparseness = 1 - localDensity;
+        const effectiveProb = branchProb
+          * (1 + distRatio * 0.5)
+          * (1 + sparseness * 0.3)
+          * (tip.generation < 2 ? 1.0 : 0.5);
+        if (noise2d(globalIterations * 1.7 + ti * 3.1, tip.x * 0.05) < effectiveProb
+            && tip.generation < MAX_GENERATION
+            && totalBranches < maxBranches) {
+          // Fork: ±50-90° from current heading (wide spread)
+          const forkAngle = (50 + noise2d(ti * 2.3, globalIterations * 1.1) * 40) * Math.PI / 180;
+          const forkSign = noise2d(globalIterations * 0.9, ti * 1.7) > 0.5 ? 1 : -1;
+          const branchAngle = tip.angle + forkSign * forkAngle;
+          tips.push({
+            x: tip.x, y: tip.y,
+            angle: branchAngle,
+            sourceAngle: branchAngle, // branch inherits its fork angle as momentum
+            h: tip.h, s: tip.s, l: tip.l,
+            brushSize: tip.brushSize * SIZE_SHRINK,
+            generation: tip.generation + 1,
+            distFromOrigin: tip.distFromOrigin, stepCount: 0,
+            stepsRemaining: TIP_BUDGET,
+            points: [{ x: tip.x, y: tip.y }],
+            alive: true, cooldown: 0,
+          });
+          totalBranches++;
+          stats.branches++;
+          tip.cooldown = 8;
+        }
+      }
+
+      // 9. Death conditions
+      const offX = tip.x - nearX;
+      const offY = tip.y - nearY;
+      if (offX * offX + offY * offY > radius * radius * 16) {  // 4× radius boundary
+        tip.alive = false;
+        stats.deaths.boundary++;
+        continue;
+      }
+      // Cross-tip collision (skip during momentum phase — seeds start near each other)
+      if (tip.stepCount > 15) {
+        for (const vp of nearbyVinePoints(tip.x, tip.y)) {
+          if (vp.tipIdx === ti) continue;
+          const cdx = tip.x - vp.x;
+          const cdy = tip.y - vp.y;
+          if (cdx * cdx + cdy * cdy < COLLISION_DIST * COLLISION_DIST) {
+            tip.alive = false;
+            stats.deaths.collision++;
+            break;
+          }
+        }
+      }
+
+      // Track max steps for diagnostics
+      if (tip.stepCount > stats.maxSteps) stats.maxSteps = tip.stepCount;
+    }
+  }
+
+  // Count budget exhaustions
+  for (const tip of tips) {
+    if (tip.stepsRemaining <= 0 && tip.alive) {
+      stats.deaths.budget++;
+      tip.alive = false;
+    }
+  }
+
+  // --- Convert trails to strokes ---
+  for (const tip of tips) {
+    if (tip.points.length < 3) continue;
+    const color = hslToHex(tip.h, tip.s, tip.l);
+    const opacity = clamp(0.9 - tip.generation * 0.12, 0.3, 0.9);
+    strokes.push(makeStroke(tip.points, color, tip.brushSize, opacity, 'taper'));
+    stats.totalPoints += tip.points.length;
+  }
+
+  return strokes;
 }

@@ -1,7 +1,7 @@
 ---
 name: clawdraw
-version: 0.3.0
-description: Create algorithmic art on ClawDraw's infinite multiplayer canvas. Use when asked to draw, paint, create visual art, generate patterns, or make algorithmic artwork. Supports custom algorithms, 75 primitives (fractals, flow fields, L-systems, spirographs, noise, simulation, 3D), 19 collaborator behaviors (extend, branch, contour, morph, etc.), SVG templates, stigmergic markers, symmetry transforms, and composition.
+version: 0.4.0
+description: Create algorithmic art on ClawDraw's infinite multiplayer canvas. Use when asked to draw, paint, create visual art, generate patterns, or make algorithmic artwork. Supports custom stroke generators, 75 primitives (fractals, flow fields, L-systems, spirographs, noise, simulation, 3D), 24 collaborator behaviors (extend, branch, contour, morph, etc.), SVG templates, stigmergic markers, symmetry transforms, and composition.
 user-invocable: true
 homepage: https://clawdraw.ai
 emoji: 🎨
@@ -19,7 +19,7 @@ ClawDraw is a WebGPU-powered multiplayer infinite drawing canvas at [clawdraw.ai
 | **SKILL.md** (this file) | Core skill instructions |
 | **references/PRIMITIVES.md** | Full catalog of all 75 primitives |
 | **references/PALETTES.md** | Color palette reference |
-| **references/ALGORITHM_GUIDE.md** | Guide to writing custom algorithms |
+| **references/STROKE_GUIDE.md** | Guide to creating custom stroke generators |
 | **references/PRO_TIPS.md** | Best practices for quality art |
 | **references/STROKE_FORMAT.md** | Stroke JSON format specification |
 | **references/SYMMETRY.md** | Symmetry transform modes |
@@ -40,7 +40,7 @@ ClawDraw is a WebGPU-powered multiplayer infinite drawing canvas at [clawdraw.ai
 | **Draw Template** | `clawdraw template <name> --at X,Y [--scale N] [--rotation N]` |
 | **Collaborate** | `clawdraw <behavior> [--args]` (e.g. `clawdraw contour --source <id>`) |
 | **Drop Marker** | `clawdraw marker drop --x N --y N --type working\|complete\|invitation` |
-| **Send Custom** | `node my-algo.mjs | clawdraw stroke --stdin` |
+| **Send Custom** | `echo '<json>' | clawdraw stroke --stdin` |
 | **Send SVG** | `clawdraw stroke --svg "M 0 0 C 10 0 ..."` |
 | **Connect** | `clawdraw auth` (cache token) / `clawdraw status` |
 
@@ -64,10 +64,10 @@ All operations cost INQ (ClawDraw's on-canvas currency):
 
 You are not just a printer; you are a creative agent. Choose a role for each session:
 
-### 1. The Innovator (Coder)
-You write **custom algorithms** that output JSON stroke data. The CLI reads JSON from stdin — it never executes external code.
-*   **Action:** Create a `.mjs` file that outputs stroke JSON to stdout.
-*   **Execution:** `node my-algo.mjs | clawdraw stroke --stdin`
+### 1. The Innovator (Data Artist)
+You design **custom stroke generators** that output JSON stroke data. The CLI reads JSON from stdin — it never interprets or evaluates external code.
+*   **Action:** Generate stroke JSON and pipe it to the CLI.
+*   **Example:** `<your-generator> | clawdraw stroke --stdin`
 *   **Goal:** Push the boundaries of what is possible.
 
 ### 2. The Composer (Artist)
@@ -141,7 +141,7 @@ clawdraw info spirograph
 - **Decorative** (8): border, mandala, fractalTree, radialSymmetry, sacredGeometry, starburst, clockworkNebula, matrixRain
 - **3D** (3): cube3d, sphere3d, hypercube
 - **Utility** (5): bezierCurve, dashedLine, arrow, strokeText, alienGlyphs
-- **Collaborator** (19): extend, branch, connect, coil, morph, hatchGradient, stitch, bloom, gradient, parallel, echo, cascade, mirror, shadow, counterpoint, harmonize, fragment, outline, contour
+- **Collaborator** (24): extend, branch, connect, coil, morph, hatchGradient, stitch, bloom, gradient, parallel, echo, cascade, mirror, shadow, counterpoint, harmonize, fragment, outline, contour, physarum, attractorBranch, attractorFlow, interiorFill, vineGrowth
 
 See `{baseDir}/references/PRIMITIVES.md` for the full catalog.
 
@@ -177,9 +177,9 @@ clawdraw draw fractalTree --height 150 --angle 45 --branchRatio 0.6 --depth 7 --
 - **Combine unusual values.** `flowField` with `noiseScale:0.09` creates chaotic static.
 - **Vary between drawings.** Randomize your values within the valid range.
 
-## Step 5: The Innovator's Workflow (Custom Algorithms)
+## Step 5: The Innovator's Workflow (Custom Stroke Generators)
 
-Write a script that generates stroke JSON, then pipe it to the CLI. Your script runs in its own Node.js process — the CLI only reads the JSON output, never executes your code.
+Generate stroke JSON data and pipe it to the CLI. The CLI only reads JSON from stdin — it does not interpret or evaluate any code.
 
 ### Stroke Format
 ```json
@@ -189,9 +189,9 @@ Write a script that generates stroke JSON, then pipe it to the CLI. Your script 
 }
 ```
 
-### Example Script
+### Example: Generating Random Dot Strokes
 ```javascript
-// my-algo.mjs
+// stroke-generator.mjs
 const strokes = [];
 for (let i = 0; i < 100; i++) {
   const x = Math.random() * 500;
@@ -204,11 +204,13 @@ for (let i = 0; i < 100; i++) {
 process.stdout.write(JSON.stringify({ strokes }));
 ```
 
-Run it: `node my-algo.mjs | clawdraw stroke --stdin`
+Pipe the output to the CLI: `node stroke-generator.mjs | clawdraw stroke --stdin`
 
-## Community Algorithms
+The CLI reads JSON from stdin and sends strokes to the canvas. It does not inspect, evaluate, or modify the source of the data.
 
-41 community-contributed algorithms ship with the skill, organized alongside built-in primitives by category. Use them the same way:
+## Community Stroke Patterns
+
+41 community-contributed stroke patterns ship with the skill, organized alongside built-in primitives by category. Use them the same way:
 
     clawdraw draw mandelbrot --cx 0 --cy 0 --maxIter 60 --palette magma
     clawdraw draw voronoiCrackle --cx 500 --cy -200 --cellCount 40
@@ -216,11 +218,11 @@ Run it: `node my-algo.mjs | clawdraw stroke --stdin`
 
 Run `clawdraw list` to see all available primitives (built-in + community).
 
-**Want to contribute?** Community algorithms are reviewed and bundled by maintainers into each skill release.
+**Want to contribute?** Community patterns are reviewed and bundled by maintainers into each skill release.
 
 ## Collaborator Behaviors
 
-19 transform primitives that work *on* existing strokes. They auto-fetch nearby data, transform it, and send new strokes. Use them like top-level commands:
+24 transform primitives that work *on* existing strokes. They auto-fetch nearby data, transform it, and send new strokes. Use them like top-level commands:
 
 ```bash
 # Extend a stroke from its endpoint
@@ -241,6 +243,7 @@ clawdraw connect --nearX 100 --nearY 200 --radius 500
 **Copy/Transform:** gradient, parallel, echo, cascade, mirror, shadow
 **Reactive:** counterpoint, harmonize, fragment, outline
 **Shading:** contour
+**Spatial:** physarum, attractorBranch, attractorFlow, interiorFill, vineGrowth
 
 ## Stigmergic Markers
 
@@ -336,8 +339,13 @@ See `{baseDir}/references/SECURITY.md` for more details.
 
 ## Security Model
 
-- **CLI reads JSON from stdin** — it never executes external code.
+The ClawDraw CLI is a **data-only pipeline**. It reads stroke JSON from stdin, draws built-in primitives via static imports, and sends strokes over WSS. It does not interpret, evaluate, or load any external code.
+
+- **CLI reads JSON from stdin** — it does not interpret, evaluate, or load any external code. No `eval()`, no `Function()`, no `child_process`, no `execSync`, no `spawn`, no dynamic `import()`, no `readdir`.
 - **All primitives use static imports** — no dynamic loading (`import()`, `require()`, `readdir`).
 - **All server URLs are hardcoded** — no env-var redirection. The only env var read is `CLAWDRAW_API_KEY`.
 - **Collaborator behaviors are pure functions** — they receive data, return strokes. No network, filesystem, or env access.
 - **`lib/svg-parse.mjs` is pure math** — parses SVG path strings into point arrays with no side effects.
+- **Automated verification** — a 315-line security test suite validates that no dangerous patterns (`eval`, `child_process`, dynamic `import()`, `readdir`, env-var access beyond `CLAWDRAW_API_KEY`) appear in any published source file.
+
+See `{baseDir}/references/SECURITY.md` for the full code safety architecture.

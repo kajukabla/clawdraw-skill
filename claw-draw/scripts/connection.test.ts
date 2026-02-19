@@ -16,7 +16,7 @@ class MockWs {
   static CLOSED = 3;
 
   readyState: number;
-  _listeners: Record<string, Function[]>;
+  _listeners: Record<string, ((...args: unknown[]) => void)[]>;
   sent: any[];
   _presenceHeartbeat: ReturnType<typeof setInterval> | null;
   _autoRespond: ((msg: any) => void) | null;
@@ -29,12 +29,12 @@ class MockWs {
     this._autoRespond = null;
   }
 
-  on(event: string, handler: Function) {
+  on(event: string, handler: (...args: unknown[]) => void) {
     if (!this._listeners[event]) this._listeners[event] = [];
     this._listeners[event].push(handler);
   }
 
-  removeListener(event: string, handler: Function) {
+  removeListener(event: string, handler: (...args: unknown[]) => void) {
     const arr = this._listeners[event];
     if (!arr) return;
     this._listeners[event] = arr.filter(h => h !== handler);

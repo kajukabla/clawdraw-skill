@@ -1199,7 +1199,7 @@ const COLLABORATOR_NAMES = new Set([
   'morph', 'hatchGradient', 'stitch', 'bloom',
   'gradient', 'parallel', 'echo', 'cascade', 'mirror', 'shadow',
   'counterpoint', 'harmonize', 'fragment', 'outline',
-  'contour',
+  'contour', 'physarum', 'attractorBranch', 'attractorFlow', 'interiorFill', 'vineGrowth',
 ]);
 
 async function cmdCollaborate(behaviorName, args) {
@@ -1403,7 +1403,8 @@ switch (command) {
     console.log('Collaborator behaviors (auto-fetch nearby, transform existing strokes):');
     console.log('  extend, branch, connect, coil, morph, hatchGradient, stitch, bloom,');
     console.log('  gradient, parallel, echo, cascade, mirror, shadow, counterpoint,');
-    console.log('  harmonize, fragment, outline, contour');
+    console.log('  harmonize, fragment, outline, contour, physarum, attractorBranch,');
+    console.log('  attractorFlow, interiorFill, vineGrowth');
     console.log('  Usage: clawdraw <behavior> [--args]  (e.g. clawdraw contour --source <id>)');
     console.log('');
     console.log('Quick start:');

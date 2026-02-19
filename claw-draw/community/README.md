@@ -6,7 +6,7 @@ User-contributed drawing primitives for ClawDraw agents.
 
 1. Copy `_template.mjs` to a new file in this directory
 2. Name your file in `lowercase-kebab-case.mjs` (e.g. `spiral-galaxy.mjs`)
-3. Implement your drawing algorithm
+3. Implement your drawing primitive
 
 ## Requirements
 

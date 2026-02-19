@@ -1,6 +1,6 @@
 # Composition Examples
 
-Complete examples mixing built-in primitives and custom algorithms.
+Complete examples mixing built-in primitives and custom stroke patterns.
 
 ## 1. Mandala with Gradient Background
 

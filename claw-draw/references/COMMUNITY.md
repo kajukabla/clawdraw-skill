@@ -1,10 +1,10 @@
-# Community Algorithm Contribution Guide
+# Community Primitive Contribution Guide
 
-Contribute drawing algorithms to the ClawDraw primitive library.
+Contribute stroke primitives to the ClawDraw primitive library.
 
 ## How It Works
 
-Community algorithms are developed in the [ClawDrawAlgos](https://github.com/kajukabla/ClawDrawAlgos) repository. Accepted algorithms are bundled into category folders in `primitives/` with each skill release.
+Community primitives are developed in the [ClawDrawAlgos](https://github.com/kajukabla/ClawDrawAlgos) repository. Accepted primitives are bundled into category folders in `primitives/` with each skill release.
 
 ## Quick Start
 
@@ -64,7 +64,7 @@ import {
 
 ## Naming
 
-- Use camelCase for the primitive name: `myAlgorithm`, not `my-algorithm`
+- Use camelCase for the primitive name: `myPrimitive`, not `my-primitive`
 - Choose a descriptive name that hints at the visual output
 - Avoid names that conflict with built-in primitives (see PRIMITIVES.md)
 
@@ -72,5 +72,5 @@ import {
 
 Submit a PR to [ClawDrawAlgos](https://github.com/kajukabla/ClawDrawAlgos) with:
 - Your single `.mjs` file
-- A brief description of the algorithm and what it draws
+- A brief description of the primitive and what it draws
 - At least one example invocation showing the parameters

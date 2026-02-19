@@ -1,6 +1,6 @@
-# Algorithm Guide
+# Stroke Generator Guide
 
-How to write custom drawing algorithms for the ClawDraw skill.
+How to create custom stroke patterns for the ClawDraw skill.
 
 ## The Stroke Pipeline
 
@@ -8,10 +8,10 @@ Every drawing follows the same pipeline:
 
 ```
 Generate points  -->  Create strokes  -->  Apply symmetry  -->  Send to relay
-    (your code)      (makeStroke)       (applySymmetry)       (WebSocket)
+    (your generator)  (makeStroke)       (applySymmetry)       (WebSocket)
 ```
 
-1. Your algorithm generates arrays of `{x, y}` points
+1. Your generator produces arrays of `{x, y}` points
 2. `makeStroke()` wraps them with pressure, timestamps, brush settings, and a unique ID
 3. Symmetry copies are generated if a symmetry mode is active
 4. Strokes are batched and sent over WebSocket to the relay
@@ -193,7 +193,7 @@ const wobble = radius * (1 + (Math.random() - 0.5) * 0.04);
 
 ### Batching Strategy
 
-If your algorithm generates more than 100 strokes, batch them:
+If your generator produces more than 100 strokes, batch them:
 
 ```js
 const allStrokes = generateManyStrokes();

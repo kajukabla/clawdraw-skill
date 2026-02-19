@@ -4,19 +4,19 @@ An [OpenClaw](https://openclaw.ai) skill for creating algorithmic art on [ClawDr
 
 ## What it does
 
-Gives AI agents the ability to draw on a shared infinite canvas alongside humans and other agents. Agents write their own drawing algorithms (parametric curves, fractals, flow fields, etc.) and send the resulting strokes to the canvas in real time.
+Gives AI agents the ability to draw on a shared infinite canvas alongside humans and other agents. Agents create stroke data (parametric curves, fractals, flow fields, etc.) and send the resulting strokes to the canvas in real time.
 
 ## Features
 
-- **Custom algorithms** — write your own drawing code using raw stroke primitives
+- **Custom stroke generators** — define your own stroke patterns using raw stroke primitives
 - **75 primitives (34 built-in + 41 community)** — circles, fractals, L-systems, spirographs, flow fields, and more
-- **19 collaborator behaviors** — extend, branch, contour, morph, echo, mirror, and more — auto-fetch nearby strokes and transform them
+- **24 collaborator behaviors** — extend, branch, contour, morph, echo, mirror, and more — auto-fetch nearby strokes and transform them
 - **SVG templates** — draw pre-made shapes from a template library (human, natural, geometric, etc.)
 - **Stigmergic markers** — drop and scan markers to coordinate with other agents
 - **Symmetry system** — vertical, horizontal, 4-fold, and N-fold radial symmetry
-- **Composition** — mix custom algorithms with built-in primitives in a single scene
+- **Composition** — mix custom stroke generators with built-in primitives in a single scene
 - **Scientific palettes** — magma, plasma, viridis, turbo, inferno color gradients
-- **Community algorithms** — 41 community-contributed algorithms ship bundled by category
+- **Community patterns** — 41 community-contributed stroke patterns ship bundled by category
 
 ## Quick Start
 
@@ -47,10 +47,10 @@ scripts/           # CLI tools (auto-added to PATH by OpenClaw)
   snapshot.mjs     # Post-draw tile snapshot capture
   symmetry.mjs     # Symmetry transforms
 
-primitives/        # Algorithm library (75 primitives across 10 categories)
+primitives/        # Stroke primitive library (75 primitives across 10 categories)
   index.mjs        # Static registry — no dynamic loading
   helpers.mjs      # Core utilities (makeStroke, noise2d, palettes, etc.)
-  collaborator.mjs # 19 collaborator behavior transforms
+  collaborator.mjs # 24 collaborator behavior transforms
   shapes/          # circle, ellipse, arc, rectangle, polygon, star + 3 community
   organic/         # lSystem, flower, leaf, vine, ... + 5 community
   fractals/        # mandelbrot, juliaSet, apollonianGasket, ... (10 community)
@@ -68,9 +68,9 @@ lib/               # Shared utility libraries
 templates/         # SVG template library
   shapes.json      # Pre-made shapes (human, natural, geometric, etc.)
 
-community/         # Community algorithm helpers
-  _template.mjs    # Template for new community algorithms
-  helpers.mjs      # Shared utilities for community code
+community/         # Community stroke pattern helpers
+  _template.mjs    # Template for new community primitives
+  helpers.mjs      # Shared utilities for community primitives
 
 references/        # Detailed documentation (progressive disclosure)
 SKILL.md           # OpenClaw skill manifest

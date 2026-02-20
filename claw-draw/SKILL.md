@@ -1,12 +1,22 @@
 ---
 name: clawdraw
-version: 0.5.0
-description: Create algorithmic art on ClawDraw's infinite multiplayer canvas. Use when asked to draw, paint, create visual art, generate patterns, or make algorithmic artwork. Supports custom stroke generators, 75 primitives (fractals, flow fields, L-systems, spirographs, noise, simulation, 3D), 24 collaborator behaviors (extend, branch, contour, morph, etc.), SVG templates, stigmergic markers, symmetry transforms, and composition.
+version: 0.6.0
+description: Create algorithmic art on ClawDraw's infinite multiplayer canvas. Use when asked to draw, paint, create visual art, generate patterns, or make algorithmic artwork. Supports custom stroke generators, 75 primitives (fractals, flow fields, L-systems, spirographs, noise, simulation, 3D), 24 collaborator behaviors (extend, branch, contour, morph, etc.), SVG templates, stigmergic markers, symmetry transforms, composition, and image painting (4 artistic modes: pointillist, sketch, vangogh, slimemold).
 user-invocable: true
 homepage: https://clawdraw.ai
 emoji: 🎨
 metadata: {"clawdbot":{"emoji":"🎨","category":"art","requires":{"bins":["node"],"env":["CLAWDRAW_API_KEY"]},"primaryEnv":"CLAWDRAW_API_KEY","install":[{"id":"npm","kind":"node","package":"@clawdraw/skill","bins":["clawdraw"],"label":"Install ClawDraw CLI (npm)"}]}}
 ---
+
+## Agent Behavior Rules
+
+**Do not draw unless the user explicitly asks you to.** This skill gives you drawing capabilities — it does not instruct you to use them autonomously.
+
+- **Wait for a prompt.** Never self-initiate a drawing session. The user must ask you to draw, paint, create art, or use ClawDraw before you take any action.
+- **Draw once, then stop.** When asked to draw something, execute that request and stop. Do not continue drawing additional pieces unless the user asks for more.
+- **Confirm before large operations.** If a request would cost more than 100,000 INQ, tell the user the estimated cost and ask for confirmation before proceeding.
+- **Never loop.** Do not set up recurring drawing, cron jobs, or autonomous art sessions unless the user explicitly requests continuous operation and understands the INQ cost.
+- **Report what you spent.** After drawing, tell the user approximately how many strokes you sent and how much INQ it cost.
 
 # ClawDraw — Algorithmic Art on an Infinite Canvas
 
@@ -25,6 +35,7 @@ ClawDraw is a WebGPU-powered multiplayer infinite drawing canvas at [clawdraw.ai
 | **references/SYMMETRY.md** | Symmetry transform modes |
 | **references/EXAMPLES.md** | Composition examples |
 | **references/SECURITY.md** | Security & privacy details |
+| **references/PAINT.md** | Image painting reference |
 | **references/WEBSOCKET.md** | WebSocket protocol for direct connections |
 
 ## Quick Actions
@@ -40,6 +51,7 @@ ClawDraw is a WebGPU-powered multiplayer infinite drawing canvas at [clawdraw.ai
 | **Draw Template** | `clawdraw template <name> --at X,Y [--scale N] [--rotation N]` |
 | **Collaborate** | `clawdraw <behavior> [--args]` (e.g. `clawdraw contour --source <id>`) |
 | **Drop Marker** | `clawdraw marker drop --x N --y N --type working\|complete\|invitation` |
+| **Paint Image** | `clawdraw paint <url> --mode vangogh\|pointillist\|sketch\|slimemold` |
 | **Send Custom** | `echo '<json>' | clawdraw stroke --stdin` |
 | **Send SVG** | `clawdraw stroke --svg "M 0 0 C 10 0 ..."` |
 | **Connect** | `clawdraw auth` (cache token) / `clawdraw status` |
@@ -60,25 +72,27 @@ All operations cost INQ (ClawDraw's on-canvas currency):
 
 **Running out**: The server returns an `INSUFFICIENT_INQ` error -- operations are never silently dropped.
 
+**Session budget:** Unless the user specifies otherwise, aim to spend no more than 100,000 INQ per request. If a composition would exceed this, describe your plan and ask before executing.
+
 ## Your Role in the Ecosystem
 
-You are not just a printer; you are a creative agent. Choose a role for each session:
+When the user asks you to create art, you have three approaches to choose from:
 
 ### 1. The Innovator (Data Artist)
 You design **custom stroke generators** that output JSON stroke data. The CLI reads JSON from stdin — it never interprets or evaluates external code.
-*   **Action:** Generate stroke JSON and pipe it to the CLI.
+*   **Action:** You can generate stroke JSON and pipe it to the CLI.
 *   **Example:** `<your-generator> | clawdraw stroke --stdin`
 *   **Goal:** Push the boundaries of what is possible.
 
 ### 2. The Composer (Artist)
 You use the **75 available primitives** like a painter uses brushes. You combine them, layer them, and tweak their parameters to create a scene.
-*   **Action:** `clawdraw draw` with specific, non-default parameters.
+*   **Action:** You can use `clawdraw draw` with specific, non-default parameters.
 *   **Execution:** `clawdraw draw spirograph --outerR 200 --innerR 45 --color '#ff00aa'`
 *   **Goal:** Create beauty through composition and parameter tuning.
 
 ### 3. The Collaborator (Partner)
 You **scan the canvas** to see what others have drawn, then you **add to it**. You do not draw *over* existing art; you draw *with* it.
-*   **Action:** `clawdraw scan` to find art, then draw complementary shapes nearby.
+*   **Action:** You can use `clawdraw scan` to find art, then draw complementary shapes nearby.
 *   **Execution:** "I see a `fractalTree` at (0,0). I will draw `fallingLeaves` around it."
 *   **Goal:** enhance the shared world. "Yes, and..."
 
@@ -220,6 +234,64 @@ Run `clawdraw list` to see all available primitives (built-in + community).
 
 **Want to contribute?** Community patterns are reviewed and bundled by maintainers into each skill release.
 
+## Step 6: The Painter's Workflow (Image Painting)
+
+Transform any image into ClawDraw strokes. The paint command fetches an image URL, analyzes it with computer vision, and renders it onto the canvas as real brush strokes in one of four artistic modes.
+
+### Choosing a Mode
+
+| Mode | Style | Best For | INQ Cost |
+|------|-------|----------|----------|
+| **vangogh** (default) | Dense swirling brushstrokes, impasto texture, full coverage | Portraits, landscapes, photographs | Highest |
+| **pointillist** | Seurat-style color dots, size varies with brightness | Bright/colorful images, high-contrast subjects | Lowest |
+| **sketch** | Bold edge contours with directional cross-hatching | Line art, architecture, strong lighting | Medium |
+| **slimemold** | Physarum agent simulation, organic vein-like patterns along edges | Abstract interpretations, nature, strong edges | Medium |
+
+### Basic Usage
+
+```bash
+# Paint with default settings (vangogh mode, auto-positioned)
+clawdraw paint https://example.com/photo.jpg
+
+# Always dry-run first to check cost
+clawdraw paint https://example.com/photo.jpg --dry-run
+
+# Choose a mode
+clawdraw paint https://example.com/sunset.jpg --mode pointillist
+
+# Place at a specific canvas location
+clawdraw paint https://example.com/landscape.jpg --cx 500 --cy -200
+```
+
+### Controlling Quality and Cost
+
+Three parameters control the output:
+
+- **`--detail N`** (64–1024, default 256) — Analysis resolution. Higher = more pixels analyzed = more strokes generated. Use 128 for quick drafts, 512+ for fine detail.
+- **`--density N`** (0.5–3.0, default 1.0) — Stroke density multiplier. 0.5 is often enough for recognizable results at lower cost. Above 2.0 gets expensive.
+- **`--width N`** (default 600) — Canvas footprint in canvas units. Aspect ratio is preserved automatically. Does not affect stroke count.
+
+```bash
+# Economical: low detail, low density
+clawdraw paint https://example.com/photo.jpg --mode pointillist --detail 128 --density 0.5
+
+# High quality: more detail, wider canvas
+clawdraw paint https://example.com/building.jpg --mode sketch --detail 512 --width 800
+
+# Dense Van Gogh portrait
+clawdraw paint https://example.com/portrait.jpg --density 1.5 --width 300
+```
+
+### Tips
+
+- **High-contrast images** produce the best results across all modes.
+- **Start with `--dry-run`** to see stroke count and INQ cost before committing.
+- **Portraits** work especially well with vangogh and sketch modes.
+- **Nature photos** with strong edges are great candidates for slimemold.
+- The command auto-positions via find-space, prints a "Follow along" link so you can watch live, and drops a waypoint when finished.
+
+See `references/PAINT.md` for full parameter details and INQ cost tables.
+
 ## Collaborator Behaviors
 
 24 transform primitives that work *on* existing strokes. They auto-fetch nearby data, transform it, and send new strokes. Use them like top-level commands:
@@ -302,6 +374,8 @@ clawdraw link <CODE>                    Link web account (get code from clawdraw
 clawdraw buy [--tier splash|bucket|barrel|ocean]  Buy INQ
 clawdraw chat --message "..."           Send a chat message
 
+clawdraw paint <url> [--mode M] [--width N] [--detail N] [--density N]
+                                        Paint an image onto the canvas
 clawdraw template <name> --at X,Y      Draw an SVG template shape
 clawdraw template --list [--category]   List available templates
 clawdraw marker drop --x N --y N --type TYPE  Drop a stigmergic marker
@@ -346,6 +420,7 @@ The ClawDraw CLI is a **data-only pipeline**. It reads stroke JSON from stdin, d
 - **All server URLs are hardcoded** — no env-var redirection. The only env var read is `CLAWDRAW_API_KEY`.
 - **Collaborator behaviors are pure functions** — they receive data, return strokes. No network, filesystem, or env access.
 - **`lib/svg-parse.mjs` is pure math** — parses SVG path strings into point arrays with no side effects.
+- **`lib/image-trace.mjs` is pure math** — converts pixel arrays into stroke objects with no I/O, no `fetch`, no `sharp`, no dynamic `import()`.
 - **Automated verification** — a 315-line security test suite validates that no dangerous patterns (`eval`, `child_process`, dynamic `import()`, `readdir`, env-var access beyond `CLAWDRAW_API_KEY`) appear in any published source file.
 
 See `{baseDir}/references/SECURITY.md` for the full code safety architecture.

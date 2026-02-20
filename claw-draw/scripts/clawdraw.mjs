@@ -22,6 +22,7 @@
  *   clawdraw waypoint --name "..." --x N --y N --zoom Z [--description "..."]
  *                                        Drop a waypoint on the canvas
  *   clawdraw chat --message "..."        Send a chat message
+ *   clawdraw paint <url> [--mode M]       Paint an image onto the canvas
  *   clawdraw template <name> --at X,Y [--scale N] [--color "#hex"] [--size N] [--rotation N]
  *                                        Draw an SVG template shape
  *   clawdraw template --list [--category <cat>]  List available templates
@@ -44,6 +45,7 @@ import { getPrimitive, listPrimitives, getPrimitiveInfo, executePrimitive } from
 import { setNearbyCache } from '../primitives/collaborator.mjs';
 import { makeStroke } from '../primitives/helpers.mjs';
 import { parseSvgPath, parseSvgPathMulti } from '../lib/svg-parse.mjs';
+import { traceImage } from '../lib/image-trace.mjs';
 
 const TILE_CDN_URL = 'https://tiles.clawdraw.ai/tiles';
 const RELAY_HTTP_URL = 'https://relay.clawdraw.ai';
@@ -1284,6 +1286,175 @@ async function cmdCollaborate(behaviorName, args) {
 }
 
 // ---------------------------------------------------------------------------
+// Paint — image-to-strokes rendering
+// ---------------------------------------------------------------------------
+
+async function cmdPaint(url, args) {
+  if (!url || url.startsWith('--')) {
+    console.error('Usage: clawdraw paint <url> [--mode pointillist|sketch|vangogh|slimemold] [--width N] [--detail N] [--density N] [--cx N] [--cy N] [--dry-run]');
+    process.exit(1);
+  }
+
+  // Validate URL protocol
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    console.error('Error: Invalid URL.');
+    process.exit(1);
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    console.error('Error: Only HTTP and HTTPS URLs are supported.');
+    process.exit(1);
+  }
+
+  const mode = args.mode || 'vangogh';
+  if (!['pointillist', 'sketch', 'vangogh', 'slimemold'].includes(mode)) {
+    console.error('Error: --mode must be pointillist, sketch, vangogh, or slimemold.');
+    process.exit(1);
+  }
+
+  const canvasWidth = Number(args.width) || 600;
+  const detail = Math.max(64, Math.min(1024, Number(args.detail) || 256));
+  const density = Math.max(0.5, Math.min(3.0, Number(args.density) || 1.0));
+  const dryRun = args['dry-run'] || false;
+  let cx = args.cx !== undefined ? Number(args.cx) : null;
+  let cy = args.cy !== undefined ? Number(args.cy) : null;
+
+  // Dynamic import of sharp (only when paint is invoked)
+  let sharp;
+  try {
+    sharp = (await import('sharp')).default;
+  } catch {
+    console.error('Error: sharp is required for the paint command.');
+    console.error('Install it: npm install sharp');
+    process.exit(1);
+  }
+
+  // Fetch image
+  console.log('Fetching image...');
+  let buffer;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    buffer = Buffer.from(await res.arrayBuffer());
+  } catch (err) {
+    console.error(`Error fetching image: ${err.message}`);
+    process.exit(1);
+  }
+
+  // Metadata + aspect ratio
+  const meta = await sharp(buffer).metadata();
+  const aspect = (meta.width || 1) / (meta.height || 1);
+  const canvasHeight = Math.round(canvasWidth / aspect);
+  const detailW = aspect >= 1 ? detail : Math.round(detail * aspect);
+  const detailH = aspect >= 1 ? Math.round(detail / aspect) : detail;
+
+  console.log(`Processing ${meta.width}x${meta.height} → ${detailW}x${detailH} analysis...`);
+
+  // Preprocess with sharp (grayscale + RGBA in parallel)
+  const [grayBuf, rgbaBuf] = await Promise.all([
+    sharp(buffer).greyscale().resize(detailW, detailH, { fit: 'fill' }).raw().toBuffer(),
+    sharp(buffer).ensureAlpha().resize(detailW, detailH, { fit: 'fill' }).raw().toBuffer(),
+  ]);
+
+  // Authenticate (needed for find-space and drawing)
+  const token = await getToken(CLAWDRAW_API_KEY);
+
+  // Auto-position if not specified
+  if (cx === null || cy === null) {
+    try {
+      const spaceRes = await fetch(`${RELAY_HTTP_URL}/api/find-space?mode=empty`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if (spaceRes.ok) {
+        const space = await spaceRes.json();
+        cx = space.canvasX;
+        cy = space.canvasY;
+        console.log(`Auto-placed at (${cx}, ${cy})`);
+      }
+    } catch { /* fall through */ }
+    if (cx === null) cx = 0;
+    if (cy === null) cy = 0;
+  }
+
+  // Build pixel data and render strokes
+  const pixelData = {
+    rgba: new Uint8Array(rgbaBuf),
+    gray: new Uint8Array(grayBuf),
+    width: detailW,
+    height: detailH,
+    canvasWidth,
+    canvasHeight,
+    cx,
+    cy,
+  };
+
+  console.log(`Rendering ${mode}...`);
+  const strokes = traceImage(pixelData, { mode, density });
+
+  // Estimate INQ cost
+  const totalPoints = strokes.reduce((sum, s) => sum + s.points.length, 0);
+  console.log(`Estimated: ${strokes.length} strokes, ~${totalPoints.toLocaleString()} INQ`);
+
+  if (dryRun) {
+    console.log('(dry run — not sending to canvas)');
+    process.exit(0);
+  }
+
+  if (totalPoints > 100000) {
+    console.error(`Estimated ${totalPoints.toLocaleString()} INQ exceeds 100K session budget.`);
+    console.error('Reduce --density or --detail, or use --dry-run to preview.');
+    process.exit(1);
+  }
+
+  // Connect and draw
+  try {
+    const ws = await connect(token, { center: { x: cx, y: cy }, zoom: 0.3 });
+
+    // Follow link — printed before drawing so user can watch live
+    console.log(`Follow along: https://clawdraw.ai/?x=${cx}&y=${cy}&z=0.3`);
+
+    const result = await sendStrokes(ws, strokes);
+    console.log(`Painted ${mode}: ${result.strokesAcked}/${result.strokesSent} stroke(s) accepted.`);
+    if (result.rejected > 0) {
+      console.log(`  ${result.rejected} batch(es) rejected: ${result.errors.join(', ')}`);
+    }
+
+    if (result.strokesAcked > 0) {
+      // Waypoint — dropped after drawing so user can revisit
+      try {
+        const wp = await addWaypoint(ws, {
+          name: `Paint: ${mode}`,
+          x: cx, y: cy, zoom: 0.3,
+          description: `${mode} rendering — ${strokes.length} strokes`,
+        });
+        console.log(`Waypoint: ${getWaypointUrl(wp)}`);
+      } catch (wpErr) {
+        console.warn(`[waypoint] Failed: ${wpErr.message}`);
+      }
+
+      try {
+        const snapshot = await captureSnapshot(ws, strokes, TILE_CDN_URL);
+        if (snapshot) {
+          console.log(`Snapshot: ${snapshot.imagePath} (${snapshot.width}x${snapshot.height})`);
+        }
+      } catch (snapErr) {
+        console.warn(`[snapshot] Failed: ${snapErr.message}`);
+      }
+    }
+
+    disconnect(ws);
+    if (result.errors.includes('INSUFFICIENT_INQ')) {
+      process.exit(1);
+    }
+  } catch (err) {
+    console.error('Error:', err.message);
+    process.exit(1);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // CLI router
 // ---------------------------------------------------------------------------
 
@@ -1373,6 +1544,11 @@ switch (command) {
     break;
   }
 
+  case 'paint': {
+    cmdPaint(rest[0], parseArgs(rest.slice(1)));
+    break;
+  }
+
   default:
     // Check if command is a collaborator behavior name
     if (command && COLLABORATOR_NAMES.has(command)) {
@@ -1398,6 +1574,7 @@ switch (command) {
     console.log('  buy [--tier splash|bucket|barrel|ocean]  Buy INQ via Stripe checkout');
     console.log('  waypoint --name "..." --x N --y N --zoom Z  Drop a waypoint on the canvas');
     console.log('  chat --message "..."                       Send a chat message');
+    console.log('  paint <url> [--mode M] [--width N]         Paint an image onto the canvas');
     console.log('  template <name> --at X,Y [--scale N]       Draw an SVG template shape');
     console.log('  template --list [--category <cat>]          List available templates');
     console.log('  marker drop --x N --y N --type TYPE        Drop a stigmergic marker');

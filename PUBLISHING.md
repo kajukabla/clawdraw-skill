@@ -102,7 +102,7 @@ The v0.6.0 scan classified the bundle as **benign** but raised informational war
 
 1. **`dev/sync-algos.mjs` in ClawHub bundle** — contained `execSync`, `child_process`, `readdir`. Was excluded from npm via `files` allowlist, but `clawhub publish` uploads the entire directory. **Fix (v0.6.1):** moved `dev/` to repo root, outside `claw-draw/`.
 2. **Test files in ClawHub bundle** — `scripts/__tests__/security.test.ts` and `scripts/connection.test.ts` appeared in the bundle. **Fix (v0.6.1):** added `.clawhubignore` to exclude test files.
-3. **Registry metadata mismatch** — `requires` and `install` were nested under `clawdbot` in the metadata JSON. ClawHub's parser expects them at the root level. **Fix (v0.6.1):** hoisted `requires` and `install` to root of metadata object.
+3. **Registry metadata mismatch** — `requires` and `install` were nested under `clawdbot` in the metadata JSON. ClawHub's parser expects them under the `openclaw` namespace (`metadata.openclaw.requires`). **Fix (v0.6.1):** hoisted `requires` and `install` to root of metadata object — but this was still wrong (needed `metadata.openclaw`). **Fix (v0.6.3):** moved all registry metadata under `metadata.openclaw` namespace.
 4. **`package-lock.json` in bundle** — unnecessary file. **Fix (v0.6.1):** added to `.clawhubignore`.
 
 ---
@@ -330,12 +330,12 @@ git push
 ```yaml
 ---
 name: clawdraw
-version: 0.6.1
+version: 0.6.3
 description: One-line description (used by OpenClaw for skill matching)
 user-invocable: true
 homepage: https://clawdraw.ai
 emoji: 🎨
-metadata: {"requires":{"bins":["node"],"env":["CLAWDRAW_API_KEY"]},"install":[{"id":"npm","kind":"node","package":"@clawdraw/skill","bins":["clawdraw"],"label":"Install ClawDraw CLI (npm)"}],"clawdbot":{"emoji":"🎨","category":"art","primaryEnv":"CLAWDRAW_API_KEY"}}
+metadata: {"openclaw":{"emoji":"🎨","category":"art","primaryEnv":"CLAWDRAW_API_KEY","requires":{"bins":["node"],"env":["CLAWDRAW_API_KEY"]},"install":[{"id":"npm","kind":"node","package":"@clawdraw/skill","bins":["clawdraw"],"label":"Install ClawDraw CLI (npm)"}]}}
 ---
 ```
 
@@ -343,7 +343,7 @@ Key fields:
 - `name` — skill slug, must match ClawHub slug
 - `version` — must match `package.json` version
 - `description` — single line, OpenClaw parser only supports single-line frontmatter
-- `metadata` — single-line JSON object; `requires.env` declares which env vars the skill needs (scanner checks that you don't access anything else)
+- `metadata` — single-line JSON object; all registry-facing metadata lives under `metadata.openclaw`. The `openclaw.requires.env` array declares which env vars the skill needs (the scanner checks that you don't access anything else). The `openclaw.install` array declares install methods shown in the ClawHub UI.
 - `user-invocable: true` — skill can be called directly by users (not just by other skills)
 
 ---
@@ -389,7 +389,7 @@ This separation is important — if `dev/` leaked into either published bundle, 
 1. **Dev tools** (`sync-algos.mjs`, anything with `execSync`/`child_process`/`readdir`) must live **outside** `claw-draw/` entirely (e.g., repo root `dev/`)
 2. **Test files** (`*.test.ts`, `__tests__/`) should be excluded via `.clawhubignore`
 3. **Build artifacts** (`node_modules/`, `package-lock.json`, `*.tgz`) should be in `.clawhubignore`
-4. **Metadata** — `requires` and `install` in SKILL.md frontmatter JSON must be at the **root level** of the metadata object, not nested under a namespace like `clawdbot`. ClawHub's registry parser reads top-level keys only.
+4. **Metadata** — `requires` and `install` in SKILL.md frontmatter JSON must be under the **`openclaw` namespace** (`metadata.openclaw.requires`, `metadata.openclaw.install`). ClawHub's registry parser and the OpenClaw security scanner read from `metadata.openclaw`, not from root-level keys or other namespaces like `clawdbot`.
 
 ---
 
@@ -397,6 +397,8 @@ This separation is important — if `dev/` leaked into either published bundle, 
 
 | Version | Date | Highlights |
 |---------|------|-----------|
+| 0.6.3 | 2026-02-20 | Fix scanner metadata: use `openclaw` namespace for `requires`/`install` (was root-level, scanner expects `metadata.openclaw`) |
+| 0.6.2 | 2026-02-20 | Paint SSRF protection, static sharp import, response size limits |
 | 0.6.1 | 2026-02-20 | Fix ClawHub scan flags: move `dev/` out of bundle, restructure metadata, add `.clawhubignore` |
 | 0.6.0 | 2026-02-20 | Paint command with 4 rendering modes (pointillist, sketch, vangogh, slimemold), `image-trace.mjs` library, full SKILL.md paint documentation |
 | 0.5.0 | 2026-02-19 | Unified primitive scales (~300 units), SVG subpath splitting (`parseSvgPathMulti`), default template scale 0.5, INQ grant update (500K) |

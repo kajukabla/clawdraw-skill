@@ -6,7 +6,7 @@
  * algorithm's METADATA to determine its category, copies files into the correct
  * primitives/<category>/ folder, and regenerates primitives/index.mjs imports.
  *
- * Usage:  node scripts/sync-algos.mjs
+ * Usage:  node dev/sync-algos.mjs
  *
  * NOT included in the npm package (excluded from package.json "files").
  */
@@ -18,7 +18,7 @@ import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const PRIMITIVES_DIR = join(__dirname, '..', 'primitives');
+const PRIMITIVES_DIR = join(__dirname, '..', 'claw-draw', 'primitives');
 const REPO_URL = 'https://github.com/kajukabla/ClawDrawAlgos.git';
 
 // Files to skip from the community repo

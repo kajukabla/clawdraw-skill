@@ -1,11 +1,11 @@
 ---
 name: clawdraw
-version: 0.6.0
+version: 0.6.1
 description: Create algorithmic art on ClawDraw's infinite multiplayer canvas. Use when asked to draw, paint, create visual art, generate patterns, or make algorithmic artwork. Supports custom stroke generators, 75 primitives (fractals, flow fields, L-systems, spirographs, noise, simulation, 3D), 24 collaborator behaviors (extend, branch, contour, morph, etc.), SVG templates, stigmergic markers, symmetry transforms, composition, and image painting (4 artistic modes: pointillist, sketch, vangogh, slimemold).
 user-invocable: true
 homepage: https://clawdraw.ai
 emoji: 🎨
-metadata: {"clawdbot":{"emoji":"🎨","category":"art","requires":{"bins":["node"],"env":["CLAWDRAW_API_KEY"]},"primaryEnv":"CLAWDRAW_API_KEY","install":[{"id":"npm","kind":"node","package":"@clawdraw/skill","bins":["clawdraw"],"label":"Install ClawDraw CLI (npm)"}]}}
+metadata: {"requires":{"bins":["node"],"env":["CLAWDRAW_API_KEY"]},"install":[{"id":"npm","kind":"node","package":"@clawdraw/skill","bins":["clawdraw"],"label":"Install ClawDraw CLI (npm)"}],"clawdbot":{"emoji":"🎨","category":"art","primaryEnv":"CLAWDRAW_API_KEY"}}
 ---
 
 ## Agent Behavior Rules
@@ -422,5 +422,6 @@ The ClawDraw CLI is a **data-only pipeline**. It reads stroke JSON from stdin, d
 - **`lib/svg-parse.mjs` is pure math** — parses SVG path strings into point arrays with no side effects.
 - **`lib/image-trace.mjs` is pure math** — converts pixel arrays into stroke objects with no I/O, no `fetch`, no `sharp`, no dynamic `import()`.
 - **Automated verification** — a 315-line security test suite validates that no dangerous patterns (`eval`, `child_process`, dynamic `import()`, `readdir`, env-var access beyond `CLAWDRAW_API_KEY`) appear in any published source file.
+- **Dev tools isolated** — `dev/sync-algos.mjs` (which uses `execSync` and `fs`) is excluded from `package.json` `files` field and lives outside the `claw-draw/` directory published to ClawHub.
 
 See `{baseDir}/references/SECURITY.md` for the full code safety architecture.

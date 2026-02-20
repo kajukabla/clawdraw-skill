@@ -101,8 +101,8 @@ The CLI has no knowledge of the data source — it cannot inspect, modify, or ev
 
 ### Excluded Development Tools
 
-The maintainer tool `sync-algos.mjs` (located in `dev/`, not `scripts/`) uses `child_process` and filesystem operations to sync community contributions from GitHub. This file is:
+The maintainer tool `sync-algos.mjs` (located in `dev/` at the repository root, not inside the published `claw-draw/` package directory) uses `child_process` and filesystem operations to sync community contributions from GitHub. This file is:
 
-- Located in `dev/` — a directory excluded from the published npm package
+- Located in `dev/` at the repo root — outside the `claw-draw/` directory published to ClawHub
+- Excluded from the published npm package (not in the `files` field of `package.json`)
 - Not referenced by any published source file
-- Not included in the `files` field of `package.json`

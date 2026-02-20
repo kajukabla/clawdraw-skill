@@ -1,0 +1,13 @@
+# Test files
+scripts/__tests__/
+*.test.ts
+
+# Dev/build artifacts
+node_modules/
+package-lock.json
+*.tgz
+
+# Config
+vitest.config.*
+tsconfig.*
+.gitignore

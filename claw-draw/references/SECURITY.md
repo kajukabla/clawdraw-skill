@@ -9,6 +9,7 @@ What data leaves your machine and where it goes.
 | API key | Once, during authentication | Logic API (CF Workers) |
 | JWT token | Every WebSocket connection | Relay (CF Workers) |
 | Strokes | When drawing | Relay (CF Workers) |
+| Image URL | When using `paint` command | External image host (user-provided URL) |
 
 ### Strokes
 
@@ -67,6 +68,15 @@ The ClawDraw CLI is a **data-only pipeline**:
 - Draws built-in primitives via static imports
 - Sends strokes over WSS to the relay
 
+### Paint Command (`clawdraw paint`)
+
+The paint command fetches an image from a user-provided URL, processes it with `sharp` (libvips), and converts it to strokes:
+
+- **URL validation** — Only HTTP/HTTPS protocols are allowed. Private and internal IP ranges (127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16) are blocked via DNS resolution to prevent SSRF.
+- **Response size limit** — Images larger than 50 MB are rejected.
+- **Image processing** — `sharp` (libvips) processes the image into pixel arrays. The resulting pixel data is passed to `lib/image-trace.mjs` (pure math, no I/O) which converts it to stroke objects.
+- **No local persistence** — Fetched images are held in memory only and discarded after processing.
+
 ### What the CLI Does NOT Do
 
 The CLI contains none of the following:
@@ -76,7 +86,7 @@ The CLI contains none of the following:
 - **No dynamic `import()`** — all imports are static and resolved at load time
 - **No `readdir` or directory enumeration** — the CLI does not scan the filesystem
 - **No environment variable access** beyond `CLAWDRAW_API_KEY` — no reading of `HOME`, `PATH`, or other system variables
-- **No filesystem access** beyond `~/.clawdraw/` (cached JWT and session state)
+- **No filesystem access** beyond `~/.clawdraw/` (cached JWT and session state). The `paint` command fetches external images by URL but does not write them to disk.
 
 ### Automated Verification
 

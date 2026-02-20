@@ -46,6 +46,8 @@ import { setNearbyCache } from '../primitives/collaborator.mjs';
 import { makeStroke } from '../primitives/helpers.mjs';
 import { parseSvgPath, parseSvgPathMulti } from '../lib/svg-parse.mjs';
 import { traceImage } from '../lib/image-trace.mjs';
+import { lookup } from 'node:dns/promises';
+import sharp from 'sharp';
 
 const TILE_CDN_URL = 'https://tiles.clawdraw.ai/tiles';
 const RELAY_HTTP_URL = 'https://relay.clawdraw.ai';
@@ -1289,6 +1291,39 @@ async function cmdCollaborate(behaviorName, args) {
 // Paint — image-to-strokes rendering
 // ---------------------------------------------------------------------------
 
+async function validateImageUrl(urlStr) {
+  const parsed = new URL(urlStr);
+
+  // Block non-HTTP(S) (already checked by caller, but defense-in-depth)
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error('Only HTTP and HTTPS URLs are supported.');
+  }
+
+  // Block obvious private hostnames
+  const host = parsed.hostname.toLowerCase();
+  if (host === 'localhost' || host.endsWith('.local') || host.endsWith('.internal')) {
+    throw new Error('Private/internal URLs are not allowed.');
+  }
+
+  // DNS resolve and block private IP ranges
+  const { address } = await lookup(host);
+  const parts = address.split('.').map(Number);
+  const isPrivate =
+    parts[0] === 127 ||                                    // 127.0.0.0/8 loopback
+    parts[0] === 10 ||                                     // 10.0.0.0/8
+    (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) || // 172.16.0.0/12
+    (parts[0] === 192 && parts[1] === 168) ||              // 192.168.0.0/16
+    (parts[0] === 169 && parts[1] === 254) ||              // 169.254.0.0/16 (cloud metadata)
+    parts[0] === 0 ||                                      // 0.0.0.0/8
+    address === '::1';                                     // IPv6 loopback
+
+  if (isPrivate) {
+    throw new Error('Private/internal URLs are not allowed.');
+  }
+}
+
+const MAX_IMAGE_BYTES = 50 * 1024 * 1024; // 50 MB
+
 async function cmdPaint(url, args) {
   if (!url || url.startsWith('--')) {
     console.error('Usage: clawdraw paint <url> [--mode pointillist|sketch|vangogh|slimemold] [--width N] [--detail N] [--density N] [--cx N] [--cy N] [--dry-run]');
@@ -1308,6 +1343,14 @@ async function cmdPaint(url, args) {
     process.exit(1);
   }
 
+  // SSRF protection — block private/internal IPs
+  try {
+    await validateImageUrl(url);
+  } catch (err) {
+    console.error(`Error: ${err.message}`);
+    process.exit(1);
+  }
+
   const mode = args.mode || 'vangogh';
   if (!['pointillist', 'sketch', 'vangogh', 'slimemold'].includes(mode)) {
     console.error('Error: --mode must be pointillist, sketch, vangogh, or slimemold.');
@@ -1321,23 +1364,20 @@ async function cmdPaint(url, args) {
   let cx = args.cx !== undefined ? Number(args.cx) : null;
   let cy = args.cy !== undefined ? Number(args.cy) : null;
 
-  // Dynamic import of sharp (only when paint is invoked)
-  let sharp;
-  try {
-    sharp = (await import('sharp')).default;
-  } catch {
-    console.error('Error: sharp is required for the paint command.');
-    console.error('Install it: npm install sharp');
-    process.exit(1);
-  }
-
   // Fetch image
   console.log('Fetching image...');
   let buffer;
   try {
     const res = await fetch(url);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const contentLength = Number(res.headers.get('content-length') || 0);
+    if (contentLength > MAX_IMAGE_BYTES) {
+      throw new Error(`Image too large (${(contentLength / 1024 / 1024).toFixed(1)} MB, max 50 MB)`);
+    }
     buffer = Buffer.from(await res.arrayBuffer());
+    if (buffer.length > MAX_IMAGE_BYTES) {
+      throw new Error(`Image too large (${(buffer.length / 1024 / 1024).toFixed(1)} MB, max 50 MB)`);
+    }
   } catch (err) {
     console.error(`Error fetching image: ${err.message}`);
     process.exit(1);

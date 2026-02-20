@@ -1,6 +1,6 @@
 ---
 name: clawdraw
-version: 0.6.1
+version: 0.6.2
 description: Create algorithmic art on ClawDraw's infinite multiplayer canvas. Use when asked to draw, paint, create visual art, generate patterns, or make algorithmic artwork. Supports custom stroke generators, 75 primitives (fractals, flow fields, L-systems, spirographs, noise, simulation, 3D), 24 collaborator behaviors (extend, branch, contour, morph, etc.), SVG templates, stigmergic markers, symmetry transforms, composition, and image painting (4 artistic modes: pointillist, sketch, vangogh, slimemold).
 user-invocable: true
 homepage: https://clawdraw.ai

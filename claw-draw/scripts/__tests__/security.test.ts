@@ -148,6 +148,40 @@ describe('checkout URL validation', () => {
 });
 
 // ---------------------------------------------------------------------------
+// cmdPaint SSRF protection
+// ---------------------------------------------------------------------------
+
+describe('cmdPaint SSRF protection', () => {
+  it('should have validateImageUrl function', () => {
+    const src = readScript('clawdraw.mjs');
+    expect(src).toContain('validateImageUrl');
+  });
+
+  it('should block private IP ranges in validateImageUrl', () => {
+    const src = readScript('clawdraw.mjs');
+    // Verify the function checks for common private ranges
+    expect(src).toMatch(/169.*254/);  // Cloud metadata
+    expect(src).toMatch(/127/);        // Loopback
+    expect(src).toMatch(/192.*168/);   // RFC 1918
+  });
+
+  it('should import dns for hostname resolution', () => {
+    const src = readScript('clawdraw.mjs');
+    expect(src).toContain("from 'node:dns/promises'");
+  });
+
+  it('should have a response size limit', () => {
+    const src = readScript('clawdraw.mjs');
+    expect(src).toMatch(/MAX_IMAGE_BYTES/);
+  });
+
+  it('should not use dynamic import for sharp', () => {
+    const src = readScript('clawdraw.mjs');
+    expect(src).not.toMatch(/import\s*\(\s*['"]sharp['"]\s*\)/);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Primitives safety — regression guards against re-introducing flagged patterns
 // ---------------------------------------------------------------------------
 

@@ -43,7 +43,7 @@ import { parseSymmetryMode, applySymmetry } from './symmetry.mjs';
 import { getPrimitive, listPrimitives, getPrimitiveInfo, executePrimitive } from '../primitives/index.mjs';
 import { setNearbyCache } from '../primitives/collaborator.mjs';
 import { makeStroke } from '../primitives/helpers.mjs';
-import { parseSvgPath } from '../lib/svg-parse.mjs';
+import { parseSvgPath, parseSvgPathMulti } from '../lib/svg-parse.mjs';
 
 const TILE_CDN_URL = 'https://tiles.clawdraw.ai/tiles';
 const RELAY_HTTP_URL = 'https://relay.clawdraw.ai';
@@ -748,7 +748,7 @@ async function cmdLink(code) {
     console.log(`  Master ID:   ${data.masterId}`);
     console.log('');
     console.log('Your web account and agents now share the same INQ pool.');
-    console.log('Daily INQ grant increased to 220,000 INQ.');
+    console.log('Daily INQ grant increased to 500,000 INQ.');
   } catch (err) {
     console.error('Error:', err.message);
     process.exit(1);
@@ -1123,35 +1123,38 @@ async function cmdTemplate(args) {
   // Parse options
   const atStr = args.at || '0,0';
   const [atX, atY] = atStr.split(',').map(Number);
-  const scale = args.scale ?? 1;
+  const scale = args.scale ?? 0.5;
   const color = args.color || '#000000';
-  const size = args.size ?? 5;
+  const size = args.size ?? 10;
   const rotation = args.rotation ?? 0;
   const opacity = args.opacity ?? 1;
 
   const strokes = [];
   for (const pathD of t.paths) {
-    const points = parseSvgPath(pathD, {
+    // Split each SVG path into subpaths at M commands to avoid connecting lines
+    const subpaths = parseSvgPathMulti(pathD, {
       scale,
       translate: { x: atX, y: atY },
     });
 
-    if (points.length < 2) continue;
+    for (const points of subpaths) {
+      if (points.length < 2) continue;
 
-    // Apply rotation around the placement point
-    if (rotation !== 0) {
-      const rad = rotation * Math.PI / 180;
-      const cos = Math.cos(rad);
-      const sin = Math.sin(rad);
-      for (const p of points) {
-        const dx = p.x - atX;
-        const dy = p.y - atY;
-        p.x = atX + dx * cos - dy * sin;
-        p.y = atY + dx * sin + dy * cos;
+      // Apply rotation around the placement point
+      if (rotation !== 0) {
+        const rad = rotation * Math.PI / 180;
+        const cos = Math.cos(rad);
+        const sin = Math.sin(rad);
+        for (const p of points) {
+          const dx = p.x - atX;
+          const dy = p.y - atY;
+          p.x = atX + dx * cos - dy * sin;
+          p.y = atY + dx * sin + dy * cos;
+        }
       }
-    }
 
-    strokes.push(makeStroke(points, color, size, opacity, 'flat'));
+      strokes.push(makeStroke(points, color, size, opacity, 'flat'));
+    }
   }
 
   if (strokes.length === 0) {

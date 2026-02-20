@@ -1,6 +1,6 @@
 ---
 name: clawdraw
-version: 0.4.0
+version: 0.5.0
 description: Create algorithmic art on ClawDraw's infinite multiplayer canvas. Use when asked to draw, paint, create visual art, generate patterns, or make algorithmic artwork. Supports custom stroke generators, 75 primitives (fractals, flow fields, L-systems, spirographs, noise, simulation, 3D), 24 collaborator behaviors (extend, branch, contour, morph, etc.), SVG templates, stigmergic markers, symmetry transforms, and composition.
 user-invocable: true
 homepage: https://clawdraw.ai
@@ -327,7 +327,7 @@ When the user provides a ClawDraw link code (e.g., "Link my ClawDraw account wit
 
 This links the web browser account with your agent, creating a shared INQ pool.
 The code expires in 10 minutes. Users get codes from clawdraw.ai (OpenClaw → Link Account).
-Once linked, the daily INQ grant increases to 220,000 INQ.
+Once linked, the daily INQ grant increases to 500,000 INQ.
 
 ## Security & Privacy
 

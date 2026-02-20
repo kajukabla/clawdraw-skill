@@ -307,3 +307,169 @@ export function parseSvgPath(d, options) {
 
   return points;
 }
+
+/**
+ * Parse an SVG path `d` attribute into multiple subpath point arrays.
+ * Splits at each M/m command so separate shapes don't get connected.
+ *
+ * @param {string} d - SVG path string
+ * @param {{samplesPerSegment?: number, scale?: number, translate?: {x: number, y: number}}} [options]
+ * @returns {Array<Array<{x: number, y: number, pressure: number, timestamp: number}>>}
+ */
+export function parseSvgPathMulti(d, options) {
+  const tokens = tokenizeSvgPath(d);
+  if (tokens.length === 0) return [];
+
+  const samples = options?.samplesPerSegment ?? 20;
+  const scale = options?.scale ?? 1;
+  const tx = options?.translate?.x ?? 0;
+  const ty = options?.translate?.y ?? 0;
+
+  const subpaths = [];
+  let current = [];
+  let cx = 0, cy = 0;
+  let startX = 0, startY = 0;
+  let lastCp2X = 0, lastCp2Y = 0;
+  let lastCmd = '';
+
+  function addPoint(x, y) {
+    current.push({ x: x * scale + tx, y: y * scale + ty, pressure: 0.5, timestamp: 0 });
+  }
+
+  function sampleCubic(x0, y0, cp1x, cp1y, cp2x, cp2y, x3, y3) {
+    const curve = { p0: { x: x0, y: y0 }, p1: { x: cp1x, y: cp1y }, p2: { x: cp2x, y: cp2y }, p3: { x: x3, y: y3 } };
+    for (let i = 1; i <= samples; i++) {
+      const pt = evaluateBezier(curve, i / samples);
+      addPoint(pt.x, pt.y);
+    }
+  }
+
+  for (const token of tokens) {
+    const cmd = token.command;
+    const args = token.args;
+    const isRel = cmd === cmd.toLowerCase() && cmd !== 'Z' && cmd !== 'z';
+
+    switch (cmd.toUpperCase()) {
+      case 'M': {
+        // Start a new subpath — flush the previous one
+        if (current.length >= 2) subpaths.push(current);
+        current = [];
+        const x = isRel ? cx + args[0] : args[0];
+        const y = isRel ? cy + args[1] : args[1];
+        addPoint(x, y);
+        cx = x; cy = y; startX = x; startY = y;
+        lastCp2X = cx; lastCp2Y = cy;
+        break;
+      }
+      case 'L': {
+        const x = isRel ? cx + args[0] : args[0];
+        const y = isRel ? cy + args[1] : args[1];
+        addPoint(x, y);
+        cx = x; cy = y;
+        lastCp2X = cx; lastCp2Y = cy;
+        break;
+      }
+      case 'H': {
+        const x = isRel ? cx + args[0] : args[0];
+        addPoint(x, cy);
+        cx = x;
+        lastCp2X = cx; lastCp2Y = cy;
+        break;
+      }
+      case 'V': {
+        const y = isRel ? cy + args[0] : args[0];
+        addPoint(cx, y);
+        cy = y;
+        lastCp2X = cx; lastCp2Y = cy;
+        break;
+      }
+      case 'C': {
+        const cp1x = isRel ? cx + args[0] : args[0];
+        const cp1y = isRel ? cy + args[1] : args[1];
+        const cp2x = isRel ? cx + args[2] : args[2];
+        const cp2y = isRel ? cy + args[3] : args[3];
+        const x = isRel ? cx + args[4] : args[4];
+        const y = isRel ? cy + args[5] : args[5];
+        sampleCubic(cx, cy, cp1x, cp1y, cp2x, cp2y, x, y);
+        lastCp2X = cp2x; lastCp2Y = cp2y;
+        cx = x; cy = y;
+        break;
+      }
+      case 'S': {
+        let cp1x, cp1y;
+        if ('CcSs'.includes(lastCmd)) {
+          cp1x = 2 * cx - lastCp2X;
+          cp1y = 2 * cy - lastCp2Y;
+        } else {
+          cp1x = cx; cp1y = cy;
+        }
+        const scp2x = isRel ? cx + args[0] : args[0];
+        const scp2y = isRel ? cy + args[1] : args[1];
+        const sx = isRel ? cx + args[2] : args[2];
+        const sy = isRel ? cy + args[3] : args[3];
+        sampleCubic(cx, cy, cp1x, cp1y, scp2x, scp2y, sx, sy);
+        lastCp2X = scp2x; lastCp2Y = scp2y;
+        cx = sx; cy = sy;
+        break;
+      }
+      case 'Q': {
+        const qcpx = isRel ? cx + args[0] : args[0];
+        const qcpy = isRel ? cy + args[1] : args[1];
+        const qx = isRel ? cx + args[2] : args[2];
+        const qy = isRel ? cy + args[3] : args[3];
+        const c1x = cx + (2 / 3) * (qcpx - cx);
+        const c1y = cy + (2 / 3) * (qcpy - cy);
+        const c2x = qx + (2 / 3) * (qcpx - qx);
+        const c2y = qy + (2 / 3) * (qcpy - qy);
+        sampleCubic(cx, cy, c1x, c1y, c2x, c2y, qx, qy);
+        lastCp2X = qcpx; lastCp2Y = qcpy;
+        cx = qx; cy = qy;
+        break;
+      }
+      case 'T': {
+        let qcpx, qcpy;
+        if ('QqTt'.includes(lastCmd)) {
+          qcpx = 2 * cx - lastCp2X;
+          qcpy = 2 * cy - lastCp2Y;
+        } else {
+          qcpx = cx; qcpy = cy;
+        }
+        const tx2 = isRel ? cx + args[0] : args[0];
+        const ty2 = isRel ? cy + args[1] : args[1];
+        const c1x = cx + (2 / 3) * (qcpx - cx);
+        const c1y = cy + (2 / 3) * (qcpy - cy);
+        const c2x = tx2 + (2 / 3) * (qcpx - tx2);
+        const c2y = ty2 + (2 / 3) * (qcpy - ty2);
+        sampleCubic(cx, cy, c1x, c1y, c2x, c2y, tx2, ty2);
+        lastCp2X = qcpx; lastCp2Y = qcpy;
+        cx = tx2; cy = ty2;
+        break;
+      }
+      case 'A': {
+        const rx = Math.abs(args[0]);
+        const ry = Math.abs(args[1]);
+        const xRot = args[2] * (Math.PI / 180);
+        const largeArc = args[3] !== 0;
+        const sweep = args[4] !== 0;
+        const x = isRel ? cx + args[5] : args[5];
+        const y = isRel ? cy + args[6] : args[6];
+        sampleArc(cx, cy, rx, ry, xRot, largeArc, sweep, x, y, samples, addPoint);
+        cx = x; cy = y;
+        lastCp2X = cx; lastCp2Y = cy;
+        break;
+      }
+      case 'Z': {
+        if (cx !== startX || cy !== startY) addPoint(startX, startY);
+        cx = startX; cy = startY;
+        lastCp2X = cx; lastCp2Y = cy;
+        break;
+      }
+    }
+    lastCmd = cmd;
+  }
+
+  // Flush final subpath
+  if (current.length >= 2) subpaths.push(current);
+
+  return subpaths;
+}

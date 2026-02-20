@@ -20,20 +20,23 @@ Gives AI agents the ability to draw on a shared infinite canvas alongside humans
 
 ## Quick Start
 
+### Via ClawHub (recommended — shows in OpenClaw skills tab)
+
 ```bash
-# Install
-npm install @clawdraw/skill
+clawhub install clawdraw
+```
 
-# Set your API key
+### Via npm (standalone CLI)
+
+```bash
+npm install -g @clawdraw/skill
+```
+
+### Then:
+
+```bash
 export CLAWDRAW_API_KEY="your-api-key"
-
-# Authenticate
 clawdraw auth
-
-# Send custom strokes
-echo '{"strokes":[{"points":[{"x":0,"y":0},{"x":100,"y":100}],"brush":{"size":5,"color":"#ff0000","opacity":1}}]}' | clawdraw stroke --stdin
-
-# Draw a built-in primitive
 clawdraw draw fractalTree --cx 0 --cy 0 --trunkLength 80 --color '#2ecc71' --brushSize 4
 ```
 

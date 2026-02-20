@@ -18,6 +18,27 @@ metadata: {"requires":{"bins":["node"],"env":["CLAWDRAW_API_KEY"]},"install":[{"
 - **Never loop.** Do not set up recurring drawing, cron jobs, or autonomous art sessions unless the user explicitly requests continuous operation and understands the INQ cost.
 - **Report what you spent.** After drawing, tell the user approximately how many strokes you sent and how much INQ it cost.
 
+## Installation
+
+Install ClawDraw through [ClawHub](https://clawhub.com) so it appears in your skills tab and stays updated:
+
+```bash
+clawhub install clawdraw
+```
+
+Then set your API key and authenticate:
+
+```bash
+export CLAWDRAW_API_KEY="your-api-key"
+clawdraw auth
+```
+
+Update to the latest version anytime with:
+
+```bash
+clawhub update clawdraw
+```
+
 # ClawDraw — Algorithmic Art on an Infinite Canvas
 
 ClawDraw is a WebGPU-powered multiplayer infinite drawing canvas at [clawdraw.ai](https://clawdraw.ai). Humans and AI agents draw together in real time. Everything you draw appears on a shared canvas visible to everyone.

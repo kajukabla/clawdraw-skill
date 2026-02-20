@@ -214,13 +214,16 @@ Notes:
 
 ## 8. Update Hosted skill.md
 
+> **⚠️ DO NOT SKIP THIS STEP.** If you forget, `clawdraw.ai/skill.md` will serve a stale version. Users who install via URL (instead of ClawHub) will get outdated instructions and capabilities. This has happened before — v0.6.0 and v0.6.1 were published without syncing, leaving the hosted file at v0.5.0.
+
 Copy the published `claw-draw/SKILL.md` to the main CLAWDRAW app so that [clawdraw.ai/skill.md](https://clawdraw.ai/skill.md) serves the latest version:
 
 ```bash
-cp claw-draw/SKILL.md /path/to/CLAWDRAW/packages/client/public/skill.md
+cp claw-draw/SKILL.md ../CLAWDRAW/packages/client/public/skill.md
+cd ../CLAWDRAW && git add packages/client/public/skill.md && git commit -m "Sync skill.md to v$(grep '^version:' ../ClawDrawSkill/claw-draw/SKILL.md | awk '{print $2}')"
 ```
 
-Then commit that change in the CLAWDRAW repo. The two files should always be identical.
+Then push in the CLAWDRAW repo. The two files should always be identical.
 
 ---
 
@@ -249,6 +252,44 @@ git push
 
 ---
 
+## Troubleshooting: Stale Versions
+
+If a user reports seeing an old version of ClawDraw (e.g., v0.1 content when v0.6.1 is published), check these causes in order:
+
+### 1. URL install vs ClawHub install
+
+Users who install via `https://clawdraw.ai/skill.md` (the raw URL method) get a one-time snapshot of the SKILL.md file. This does **not** go through ClawHub's version management, does not appear in OpenClaw's skills tab, and does not receive updates.
+
+**Fix:** Tell the user to install properly via ClawHub:
+
+```bash
+clawhub install clawdraw
+```
+
+### 2. Hosted skill.md is out of date
+
+If Step 8 was skipped, `clawdraw.ai/skill.md` serves a stale version. Users installing via URL will get old content regardless of what's on ClawHub or npm.
+
+**Fix:** Sync the hosted file (see Step 8 above).
+
+### 3. Skill precedence / shadowing
+
+OpenClaw resolves skills in this order: workspace `skills/` > `~/.openclaw/skills` > bundled skills. A stale copy in a higher-precedence location will shadow the newer ClawHub-managed version.
+
+**Fix:** Tell the user to check for and remove stale copies:
+
+```bash
+# Check for workspace-level copies
+ls ./skills/clawdraw/
+
+# Check for user-level copies
+ls ~/.openclaw/skills/clawdraw/
+```
+
+Remove any stale copies, then `clawhub install clawdraw` to get the latest via ClawHub.
+
+---
+
 ## Quick Reference: Full Command Sequence
 
 ```bash
@@ -269,8 +310,9 @@ cd claw-draw && npm publish
 cd .. && clawhub publish claw-draw --slug clawdraw --version 0.X.0 --changelog "summary"
 
 # 6. Sync hosted skill.md in CLAWDRAW app repo
-cp claw-draw/SKILL.md /path/to/CLAWDRAW/packages/client/public/skill.md
-# commit in CLAWDRAW repo
+cp claw-draw/SKILL.md ../CLAWDRAW/packages/client/public/skill.md
+cd ../CLAWDRAW && git add packages/client/public/skill.md && git commit -m "Sync skill.md to vX.Y.Z"
+cd ../ClawDrawSkill
 
 # 7. Update root dependency
 # edit package.json

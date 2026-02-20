@@ -13,8 +13,8 @@ export const METADATA = [
     name: 'hatchFill', description: 'Parallel line shading (hatching)', category: 'fills',
     parameters: {
       cx: { type: 'number', required: true }, cy: { type: 'number', required: true },
-      width: { type: 'number', min: 10, max: 600, default: 100, description: 'Area width' },
-      height: { type: 'number', min: 10, max: 600, default: 100, description: 'Area height' },
+      width: { type: 'number', min: 10, max: 600, default: 300, description: 'Area width' },
+      height: { type: 'number', min: 10, max: 600, default: 300, description: 'Area height' },
       angle: { type: 'number', description: 'Line angle in degrees' },
       spacing: { type: 'number', min: 2, max: 50, default: 8, description: 'Line spacing' },
       color: { type: 'string' }, brushSize: { type: 'number', min: 3, max: 100 },
@@ -39,8 +39,8 @@ export const METADATA = [
     name: 'stipple', description: 'Random dot pattern fill', category: 'fills',
     parameters: {
       cx: { type: 'number', required: true }, cy: { type: 'number', required: true },
-      width: { type: 'number', min: 10, max: 600, default: 100, description: 'Area width' },
-      height: { type: 'number', min: 10, max: 600, default: 100, description: 'Area height' },
+      width: { type: 'number', min: 10, max: 600, default: 300, description: 'Area width' },
+      height: { type: 'number', min: 10, max: 600, default: 300, description: 'Area height' },
       density: { type: 'number', min: 0.1, max: 1, default: 0.5, description: 'Dot density' },
       color: { type: 'string' }, brushSize: { type: 'number', min: 3, max: 100 },
       dotCount: { type: 'number', min: 10, max: 500, description: 'Exact dot count' },
@@ -51,8 +51,8 @@ export const METADATA = [
     name: 'gradientFill', description: 'Color gradient via stroke density', category: 'fills',
     parameters: {
       cx: { type: 'number', required: true }, cy: { type: 'number', required: true },
-      width: { type: 'number', min: 10, max: 600, default: 200, description: 'Area width' },
-      height: { type: 'number', min: 10, max: 600, default: 200, description: 'Area height' },
+      width: { type: 'number', min: 10, max: 600, default: 300, description: 'Area width' },
+      height: { type: 'number', min: 10, max: 600, default: 300, description: 'Area height' },
       colorStart: { type: 'string', description: 'Start color' },
       colorEnd: { type: 'string', description: 'End color' },
       angle: { type: 'number', description: 'Gradient angle in degrees' },
@@ -65,8 +65,8 @@ export const METADATA = [
     name: 'colorWash', description: 'Seamless color wash fill', category: 'fills',
     parameters: {
       cx: { type: 'number', required: true }, cy: { type: 'number', required: true },
-      width: { type: 'number', min: 10, max: 800, default: 200, description: 'Area width' },
-      height: { type: 'number', min: 10, max: 800, default: 200, description: 'Area height' },
+      width: { type: 'number', min: 10, max: 800, default: 300, description: 'Area width' },
+      height: { type: 'number', min: 10, max: 800, default: 300, description: 'Area height' },
       color: { type: 'string' }, opacity: { type: 'number', min: 0.01, max: 0.6, default: 0.35 },
       pressureStyle: { type: 'string' },
     },
@@ -90,8 +90,8 @@ export const METADATA = [
 
 export function hatchFill(cx, cy, width, height, angle, spacing, color, brushSize, opacity, colorEnd, pressureStyle) {
   cx = Number(cx) || 0; cy = Number(cy) || 0;
-  width = clamp(Number(width) || 100, 10, 600);
-  height = clamp(Number(height) || 100, 10, 600);
+  width = clamp(Number(width) || 300, 10, 600);
+  height = clamp(Number(height) || 300, 10, 600);
   angle = (Number(angle) || 45) * Math.PI / 180;
   spacing = clamp(Number(spacing) || 8, 2, 50);
   brushSize = clamp(Number(brushSize) || 2, 3, 100);
@@ -129,8 +129,8 @@ export function crossHatch(cx, cy, width, height, spacing, color, brushSize, opa
 
 export function stipple(cx, cy, width, height, density, color, brushSize, dotCount, pressureStyle) {
   cx = Number(cx) || 0; cy = Number(cy) || 0;
-  width = clamp(Number(width) || 100, 10, 600);
-  height = clamp(Number(height) || 100, 10, 600);
+  width = clamp(Number(width) || 300, 10, 600);
+  height = clamp(Number(height) || 300, 10, 600);
   density = clamp(Number(density) || 0.5, 0.1, 1);
   brushSize = clamp(Number(brushSize) || 3, 3, 100);
   dotCount = clamp(Math.round(Number(dotCount) || Math.round(50 * density)), 10, 500);
@@ -150,8 +150,8 @@ export function stipple(cx, cy, width, height, density, color, brushSize, dotCou
 
 export function gradientFill(cx, cy, width, height, colorStart, colorEnd, angle, density, brushSize, pressureStyle) {
   cx = Number(cx) || 0; cy = Number(cy) || 0;
-  width = clamp(Number(width) || 200, 10, 600);
-  height = clamp(Number(height) || 200, 10, 600);
+  width = clamp(Number(width) || 300, 10, 600);
+  height = clamp(Number(height) || 300, 10, 600);
   angle = (Number(angle) || 0) * Math.PI / 180;
   density = clamp(Number(density) || 0.5, 0.1, 1);
   brushSize = clamp(Number(brushSize) || 10, 3, 100);
@@ -177,8 +177,8 @@ export function gradientFill(cx, cy, width, height, colorStart, colorEnd, angle,
 
 export function colorWash(cx, cy, width, height, color, opacity, pressureStyle) {
   cx = Number(cx) || 0; cy = Number(cy) || 0;
-  width = clamp(Number(width) || 200, 10, 800);
-  height = clamp(Number(height) || 200, 10, 800);
+  width = clamp(Number(width) || 300, 10, 800);
+  height = clamp(Number(height) || 300, 10, 800);
   opacity = clamp(Number(opacity) || 0.35, 0.01, 0.6);
 
   const result = [];

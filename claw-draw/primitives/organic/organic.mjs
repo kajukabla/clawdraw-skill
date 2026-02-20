@@ -15,7 +15,7 @@ export const METADATA = [
       cx: { type: 'number', required: true }, cy: { type: 'number', required: true },
       preset: { type: 'string', required: true, options: ['fern', 'tree', 'bush', 'coral', 'seaweed'], description: 'L-System preset (controls shape rules)' },
       iterations: { type: 'number', min: 1, max: 5, description: 'Iteration depth (max varies by preset)' },
-      scale: { type: 'number', min: 0.1, max: 5, default: 1, description: 'Size multiplier (0.5=small, 2=large)' },
+      scale: { type: 'number', min: 0.1, max: 5, default: 3, description: 'Size multiplier (0.5=small, 2=large)' },
       rotation: { type: 'number', description: 'Starting rotation in degrees' },
       color: { type: 'string' }, brushSize: { type: 'number', min: 3, max: 100 },
       palette: { type: 'string', options: ['magma', 'plasma', 'viridis', 'turbo', 'inferno'], description: 'Color palette (gradient)' },
@@ -40,8 +40,8 @@ export const METADATA = [
     name: 'leaf', description: 'Single leaf with midrib and veins', category: 'organic',
     parameters: {
       cx: { type: 'number', required: true }, cy: { type: 'number', required: true },
-      length: { type: 'number', min: 10, max: 300, default: 80, description: 'Leaf length' },
-      width: { type: 'number', min: 5, max: 150, default: 30, description: 'Leaf width' },
+      length: { type: 'number', min: 10, max: 300, default: 200, description: 'Leaf length' },
+      width: { type: 'number', min: 5, max: 150, default: 80, description: 'Leaf width' },
       rotation: { type: 'number', description: 'Rotation in degrees' },
       color: { type: 'string' }, brushSize: { type: 'number', min: 3, max: 100 },
       veinCount: { type: 'number', min: 0, max: 12, default: 4, description: 'Number of veins' },
@@ -63,8 +63,8 @@ export const METADATA = [
     name: 'spaceColonization', description: 'Space colonization algorithm (roots, veins, lightning)', category: 'organic',
     parameters: {
       cx: { type: 'number', required: true }, cy: { type: 'number', required: true },
-      width: { type: 'number', min: 20, max: 600, default: 200, description: 'Area width' },
-      height: { type: 'number', min: 20, max: 600, default: 200, description: 'Area height' },
+      width: { type: 'number', min: 20, max: 600, default: 300, description: 'Area width' },
+      height: { type: 'number', min: 20, max: 600, default: 300, description: 'Area height' },
       density: { type: 'number', min: 0.1, max: 1, default: 0.5, description: 'Attractor density' },
       color: { type: 'string' }, brushSize: { type: 'number', min: 3, max: 100 },
       palette: { type: 'string', description: 'Color palette' },
@@ -76,7 +76,7 @@ export const METADATA = [
     name: 'mycelium', description: 'Organic branching mycelium network', category: 'organic',
     parameters: {
       cx: { type: 'number', required: true }, cy: { type: 'number', required: true },
-      radius: { type: 'number', min: 20, max: 500, default: 150, description: 'Spread radius' },
+      radius: { type: 'number', min: 20, max: 500, default: 180, description: 'Spread radius' },
       density: { type: 'number', min: 0.1, max: 1, default: 0.5, description: 'Branch density' },
       color: { type: 'string' }, brushSize: { type: 'number', min: 3, max: 100 },
       palette: { type: 'string', description: 'Color palette' },
@@ -88,7 +88,7 @@ export const METADATA = [
     name: 'barnsleyFern', description: 'Barnsley Fern IFS fractal', category: 'organic',
     parameters: {
       cx: { type: 'number', required: true }, cy: { type: 'number', required: true },
-      scale: { type: 'number', min: 3, max: 100, default: 20, description: 'Size scale' },
+      scale: { type: 'number', min: 3, max: 100, default: 30, description: 'Size scale' },
       iterations: { type: 'number', min: 500, max: 8000, default: 2000, description: 'Point count' },
       lean: { type: 'number', min: -30, max: 30, default: 0, description: 'Lean angle in degrees' },
       curl: { type: 'number', min: 0.5, max: 1.5, default: 1, description: 'Curl factor' },
@@ -115,7 +115,7 @@ export function lSystem(cx, cy, preset, iterations, scale, rotation, color, brus
   cx = Number(cx) || 0; cy = Number(cy) || 0;
   const cfg = L_SYSTEM_PRESETS[preset] || L_SYSTEM_PRESETS.tree;
   iterations = clamp(Math.round(Number(iterations) || cfg.maxIter), 1, cfg.maxIter);
-  scale = clamp(Number(scale) || 1, 0.1, 5);
+  scale = clamp(Number(scale) || 3, 0.1, 5);
   const startAngle = (Number(rotation) || -90);
 
   let str = cfg.axiom;
@@ -235,8 +235,8 @@ export function flower(cx, cy, petals, petalLength, petalWidth, centerRadius, pe
 
 export function leaf(cx, cy, length, width, rotation, color, brushSize, veinCount, pressureStyle) {
   cx = Number(cx) || 0; cy = Number(cy) || 0;
-  length = clamp(Number(length) || 80, 10, 300);
-  width = clamp(Number(width) || 30, 5, 150);
+  length = clamp(Number(length) || 200, 10, 300);
+  width = clamp(Number(width) || 80, 5, 150);
   rotation = (Number(rotation) || 0) * Math.PI / 180;
   veinCount = clamp(Math.round(Number(veinCount) || 4), 0, 12);
   brushSize = clamp(Number(brushSize) || 5, 3, 100);
@@ -328,8 +328,8 @@ export function vine(startX, startY, endX, endY, curveAmount, leafCount, color, 
 
 export function spaceColonization(cx, cy, width, height, density, color, brushSize, palette, stepLength, pressureStyle) {
   cx = Number(cx) || 0; cy = Number(cy) || 0;
-  width = clamp(Number(width) || 200, 20, 600);
-  height = clamp(Number(height) || 200, 20, 600);
+  width = clamp(Number(width) || 300, 20, 600);
+  height = clamp(Number(height) || 300, 20, 600);
   density = clamp(Number(density) || 0.5, 0.1, 1);
   brushSize = clamp(Number(brushSize) || 3, 3, 100);
 
@@ -405,7 +405,7 @@ export function spaceColonization(cx, cy, width, height, density, color, brushSi
 
 export function mycelium(cx, cy, radius, density, color, brushSize, palette, branchiness, pressureStyle) {
   cx = Number(cx) || 0; cy = Number(cy) || 0;
-  radius = clamp(Number(radius) || 150, 20, 500);
+  radius = clamp(Number(radius) || 180, 20, 500);
   density = clamp(Number(density) || 0.5, 0.1, 1);
   brushSize = clamp(Number(brushSize) || 3, 3, 10);
   branchiness = clamp(Number(branchiness) || 0.5, 0.1, 1.0);
@@ -461,7 +461,7 @@ export function mycelium(cx, cy, radius, density, color, brushSize, palette, bra
 
 export function barnsleyFern(cx, cy, scale, iterations, lean, curl, color, brushSize, palette, pressureStyle) {
   cx = Number(cx) || 0; cy = Number(cy) || 0;
-  scale = clamp(Number(scale) || 20, 3, 100);
+  scale = clamp(Number(scale) || 30, 3, 100);
   iterations = clamp(Math.round(Number(iterations) || 2000), 500, 8000);
   lean = clamp(Number(lean) || 0, -30, 30) * Math.PI / 180;
   curl = clamp(Number(curl) || 1.0, 0.5, 1.5);

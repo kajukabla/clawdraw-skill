@@ -56,7 +56,7 @@ export const METADATA = [
     parameters: {
       cx: { type: 'number', required: true }, cy: { type: 'number', required: true },
       count: { type: 'number', min: 1, max: 20, default: 8, description: 'Number of glyphs' },
-      glyphSize: { type: 'number', min: 5, max: 100, default: 25, description: 'Glyph size' },
+      glyphSize: { type: 'number', min: 5, max: 100, default: 30, description: 'Glyph size' },
       arrangement: { type: 'string', options: ['line', 'grid', 'scatter', 'circle'], default: 'line', description: 'Layout arrangement' },
       color: { type: 'string' }, brushSize: { type: 'number', min: 3, max: 100 },
       opacity: { type: 'number', min: 0.01, max: 1 },
@@ -237,7 +237,7 @@ export function strokeText(cx, cy, text, charHeight, color, brushSize, opacity, 
 export function alienGlyphs(cx, cy, count, glyphSize, arrangement, color, brushSize, opacity, pressureStyle) {
   cx = Number(cx) || 0; cy = Number(cy) || 0;
   count = clamp(Math.round(Number(count) || 8), 1, 20);
-  glyphSize = clamp(Number(glyphSize) || 25, 5, 100);
+  glyphSize = clamp(Number(glyphSize) || 30, 5, 100);
   arrangement = String(arrangement || 'line').toLowerCase();
   brushSize = clamp(Number(brushSize) || 2, 3, 100);
   opacity = clamp(Number(opacity) || 0.85, 0.01, 1);

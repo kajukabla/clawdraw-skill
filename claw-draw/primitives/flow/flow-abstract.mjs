@@ -13,8 +13,8 @@ export const METADATA = [
     name: 'flowField', description: 'Perlin noise flow field particle traces', category: 'flow-abstract',
     parameters: {
       cx: { type: 'number', required: true }, cy: { type: 'number', required: true },
-      width: { type: 'number', min: 20, max: 600, default: 200, description: 'Area width (larger = bigger field)' },
-      height: { type: 'number', min: 20, max: 600, default: 200, description: 'Area height (larger = bigger field)' },
+      width: { type: 'number', min: 20, max: 600, default: 300, description: 'Area width (larger = bigger field)' },
+      height: { type: 'number', min: 20, max: 600, default: 300, description: 'Area height (larger = bigger field)' },
       noiseScale: { type: 'number', min: 0.001, max: 0.1, default: 0.01, description: 'Noise frequency (0.005=smooth waves, 0.05=chaotic static)' },
       density: { type: 'number', min: 0.1, max: 1, default: 0.5, description: 'Particle density (0.2=sparse lines, 0.8=dense texture)' },
       segmentLength: { type: 'number', min: 1, max: 30, default: 5, description: 'Step size (2=smooth curves, 15=jagged/angular)' },
@@ -30,7 +30,7 @@ export const METADATA = [
       cx: { type: 'number', required: true }, cy: { type: 'number', required: true },
       turns: { type: 'number', min: 0.5, max: 20, default: 3, description: 'Number of turns (higher = tighter winding)' },
       startRadius: { type: 'number', min: 0, max: 500, default: 5, description: 'Inner starting radius' },
-      endRadius: { type: 'number', min: 1, max: 500, default: 100, description: 'Outer ending radius' },
+      endRadius: { type: 'number', min: 1, max: 500, default: 160, description: 'Outer ending radius' },
       color: { type: 'string' }, brushSize: { type: 'number', min: 3, max: 100 },
       opacity: { type: 'number', min: 0.01, max: 1 },
       pressureStyle: { type: 'string' },
@@ -43,7 +43,7 @@ export const METADATA = [
       freqX: { type: 'number', min: 1, max: 20, default: 3, description: 'X frequency (loops horizontally)' },
       freqY: { type: 'number', min: 1, max: 20, default: 2, description: 'Y frequency (loops vertically)' },
       phase: { type: 'number', description: 'Phase offset in degrees (shifts the wave)' },
-      amplitude: { type: 'number', min: 10, max: 500, default: 80, description: 'Curve size (radius)' },
+      amplitude: { type: 'number', min: 10, max: 500, default: 160, description: 'Curve size (radius)' },
       color: { type: 'string' }, brushSize: { type: 'number', min: 3, max: 100 },
       palette: { type: 'string', description: 'Color palette (overrides color)' },
       pressureStyle: { type: 'string' },
@@ -55,7 +55,7 @@ export const METADATA = [
       cx: { type: 'number', required: true }, cy: { type: 'number', required: true },
       type: { type: 'string', options: ['lorenz', 'aizawa', 'thomas'], default: 'lorenz', description: 'Attractor type (lorenz=butterfly, aizawa=sphere-like)' },
       iterations: { type: 'number', min: 100, max: 5000, default: 2000, description: 'Point count (higher = denser cloud)' },
-      scale: { type: 'number', min: 0.1, max: 50, default: 5, description: 'Display scale (zoom)' },
+      scale: { type: 'number', min: 0.1, max: 50, default: 8, description: 'Display scale (zoom)' },
       color: { type: 'string' }, brushSize: { type: 'number', min: 3, max: 100 },
       palette: { type: 'string', description: 'Color palette (overrides color)' },
       timeStep: { type: 'number', min: 0.001, max: 0.02, default: 0.005, description: 'Integration step (smaller = smoother/slower)' },
@@ -66,8 +66,8 @@ export const METADATA = [
     name: 'spirograph', description: 'Spirograph (epitrochoid/hypotrochoid) geometric curves', category: 'flow-abstract',
     parameters: {
       cx: { type: 'number', required: true }, cy: { type: 'number', required: true },
-      outerR: { type: 'number', min: 10, max: 500, default: 100, description: 'Outer ring radius (primary size)' },
-      innerR: { type: 'number', min: 5, max: 400, default: 40, description: 'Inner ring radius (loop frequency control)' },
+      outerR: { type: 'number', min: 10, max: 500, default: 150, description: 'Outer ring radius (primary size)' },
+      innerR: { type: 'number', min: 5, max: 400, default: 55, description: 'Inner ring radius (loop frequency control)' },
       traceR: { type: 'number', min: 1, max: 400, default: 30, description: 'Trace point distance (loop amplitude)' },
       revolutions: { type: 'number', min: 1, max: 50, default: 10, description: 'Number of revolutions (higher = denser pattern)' },
       color: { type: 'string' }, brushSize: { type: 'number', min: 3, max: 100 },
@@ -84,8 +84,8 @@ export const METADATA = [
 
 export function flowField(cx, cy, width, height, noiseScale, density, segmentLength, color, brushSize, palette, traceLength, pressureStyle) {
   cx = Number(cx) || 0; cy = Number(cy) || 0;
-  width = clamp(Number(width) || 200, 20, 600);
-  height = clamp(Number(height) || 200, 20, 600);
+  width = clamp(Number(width) || 300, 20, 600);
+  height = clamp(Number(height) || 300, 20, 600);
   noiseScale = clamp(Number(noiseScale) || 0.01, 0.001, 0.1);
   density = clamp(Number(density) || 0.5, 0.1, 1);
   segmentLength = clamp(Number(segmentLength) || 5, 1, 30);
@@ -120,7 +120,7 @@ export function spiral(cx, cy, turns, startRadius, endRadius, color, brushSize, 
   cx = Number(cx) || 0; cy = Number(cy) || 0;
   turns = clamp(Number(turns) || 3, 0.5, 20);
   startRadius = clamp(Number(startRadius) || 5, 0, 500);
-  endRadius = clamp(Number(endRadius) || 100, 1, 500);
+  endRadius = clamp(Number(endRadius) || 160, 1, 500);
   const steps = clamp(Math.round(turns * 30), 20, 2000);
   const pts = [];
   for (let i = 0; i <= steps; i++) {
@@ -137,7 +137,7 @@ export function lissajous(cx, cy, freqX, freqY, phase, amplitude, color, brushSi
   freqX = clamp(Number(freqX) || 3, 1, 20);
   freqY = clamp(Number(freqY) || 2, 1, 20);
   phase = (Number(phase) || 0) * Math.PI / 180;
-  amplitude = clamp(Number(amplitude) || 80, 10, 500);
+  amplitude = clamp(Number(amplitude) || 160, 10, 500);
 
   const steps = 200;
   const noiseSeed = Math.random() * 100;
@@ -180,7 +180,7 @@ export function strangeAttractor(cx, cy, type, iterations, scale, color, brushSi
   cx = Number(cx) || 0; cy = Number(cy) || 0;
   type = String(type || 'lorenz').toLowerCase();
   iterations = clamp(Math.round(Number(iterations) || 2000), 100, 5000);
-  scale = clamp(Number(scale) || 5, 0.1, 50);
+  scale = clamp(Number(scale) || 8, 0.1, 50);
   brushSize = clamp(Number(brushSize) || 2, 3, 100);
   timeStep = clamp(Number(timeStep) || 0.005, 0.001, 0.02);
 
@@ -236,8 +236,8 @@ export function strangeAttractor(cx, cy, type, iterations, scale, color, brushSi
 
 export function spirograph(cx, cy, outerR, innerR, traceR, revolutions, color, brushSize, palette, startAngle, pressureStyle) {
   cx = Number(cx) || 0; cy = Number(cy) || 0;
-  outerR = clamp(Number(outerR) || 100, 10, 500);
-  innerR = clamp(Number(innerR) || 40, 5, 400);
+  outerR = clamp(Number(outerR) || 150, 10, 500);
+  innerR = clamp(Number(innerR) || 55, 5, 400);
   traceR = clamp(Number(traceR) || 30, 1, 400);
   revolutions = clamp(Number(revolutions) || 10, 1, 50);
   brushSize = clamp(Number(brushSize) || 2, 3, 100);

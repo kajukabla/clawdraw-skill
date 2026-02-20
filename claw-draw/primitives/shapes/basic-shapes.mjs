@@ -13,7 +13,7 @@ export const METADATA = [
     name: 'circle', description: 'Smooth circle', category: 'basic-shapes',
     parameters: {
       cx: { type: 'number', required: true }, cy: { type: 'number', required: true },
-      radius: { type: 'number', required: true, min: 1, max: 500, default: 50, description: 'Circle radius' },
+      radius: { type: 'number', required: true, min: 1, max: 500, default: 150, description: 'Circle radius' },
       color: { type: 'string' }, brushSize: { type: 'number', min: 3, max: 100 },
       opacity: { type: 'number', min: 0.01, max: 1, default: 0.9 },
       pressureStyle: { type: 'string' },
@@ -23,8 +23,8 @@ export const METADATA = [
     name: 'ellipse', description: 'Rotated oval', category: 'basic-shapes',
     parameters: {
       cx: { type: 'number', required: true }, cy: { type: 'number', required: true },
-      radiusX: { type: 'number', required: true, min: 1, max: 500, default: 50, description: 'Horizontal radius' },
-      radiusY: { type: 'number', required: true, min: 1, max: 500, default: 30, description: 'Vertical radius' },
+      radiusX: { type: 'number', required: true, min: 1, max: 500, default: 170, description: 'Horizontal radius' },
+      radiusY: { type: 'number', required: true, min: 1, max: 500, default: 110, description: 'Vertical radius' },
       rotation: { type: 'number', description: 'Rotation in degrees' },
       color: { type: 'string' }, brushSize: { type: 'number', min: 3, max: 100 },
       opacity: { type: 'number', min: 0.01, max: 1, default: 0.9 },
@@ -35,7 +35,7 @@ export const METADATA = [
     name: 'arc', description: 'Partial circle arc', category: 'basic-shapes',
     parameters: {
       cx: { type: 'number', required: true }, cy: { type: 'number', required: true },
-      radius: { type: 'number', required: true, min: 1, max: 500, default: 50, description: 'Arc radius' },
+      radius: { type: 'number', required: true, min: 1, max: 500, default: 150, description: 'Arc radius' },
       startAngle: { type: 'number', required: true, description: 'Start angle in degrees' },
       endAngle: { type: 'number', required: true, description: 'End angle in degrees' },
       color: { type: 'string' }, brushSize: { type: 'number', min: 3, max: 100 },
@@ -47,8 +47,8 @@ export const METADATA = [
     name: 'rectangle', description: 'Rectangle outline', category: 'basic-shapes',
     parameters: {
       cx: { type: 'number', required: true }, cy: { type: 'number', required: true },
-      width: { type: 'number', required: true, min: 2, max: 1000, default: 100, description: 'Rectangle width' },
-      height: { type: 'number', required: true, min: 2, max: 1000, default: 100, description: 'Rectangle height' },
+      width: { type: 'number', required: true, min: 2, max: 1000, default: 300, description: 'Rectangle width' },
+      height: { type: 'number', required: true, min: 2, max: 1000, default: 200, description: 'Rectangle height' },
       rotation: { type: 'number', description: 'Rotation in degrees' },
       color: { type: 'string' }, brushSize: { type: 'number', min: 3, max: 100 },
       opacity: { type: 'number', min: 0.01, max: 1, default: 0.9 },
@@ -59,7 +59,7 @@ export const METADATA = [
     name: 'polygon', description: 'Regular N-sided polygon', category: 'basic-shapes',
     parameters: {
       cx: { type: 'number', required: true }, cy: { type: 'number', required: true },
-      radius: { type: 'number', required: true, min: 1, max: 500, default: 50, description: 'Polygon radius' },
+      radius: { type: 'number', required: true, min: 1, max: 500, default: 150, description: 'Polygon radius' },
       sides: { type: 'number', required: true, min: 3, max: 24, default: 6, description: 'Number of sides' },
       rotation: { type: 'number', description: 'Rotation in degrees' },
       color: { type: 'string' }, brushSize: { type: 'number', min: 3, max: 100 },
@@ -71,8 +71,8 @@ export const METADATA = [
     name: 'star', description: 'N-pointed star', category: 'basic-shapes',
     parameters: {
       cx: { type: 'number', required: true }, cy: { type: 'number', required: true },
-      outerR: { type: 'number', required: true, min: 5, max: 500, default: 60, description: 'Outer radius' },
-      innerR: { type: 'number', required: true, min: 2, max: 499, default: 30, description: 'Inner radius' },
+      outerR: { type: 'number', required: true, min: 5, max: 500, default: 150, description: 'Outer radius' },
+      innerR: { type: 'number', required: true, min: 2, max: 499, default: 65, description: 'Inner radius' },
       points: { type: 'number', required: true, min: 3, max: 20, default: 5, description: 'Number of points' },
       rotation: { type: 'number', description: 'Rotation in degrees' },
       color: { type: 'string' }, brushSize: { type: 'number', min: 3, max: 100 },
@@ -88,7 +88,7 @@ export const METADATA = [
 
 export function circle(cx, cy, radius, color, brushSize, opacity, pressureStyle) {
   cx = Number(cx) || 0; cy = Number(cy) || 0;
-  radius = clamp(Number(radius) || 50, 1, 500);
+  radius = clamp(Number(radius) || 150, 1, 500);
   const steps = clamp(Math.round(radius * 0.5), 24, 200);
   const pts = [];
   for (let i = 0; i <= steps; i++) {
@@ -101,8 +101,8 @@ export function circle(cx, cy, radius, color, brushSize, opacity, pressureStyle)
 
 export function ellipse(cx, cy, radiusX, radiusY, rotation, color, brushSize, opacity, pressureStyle) {
   cx = Number(cx) || 0; cy = Number(cy) || 0;
-  radiusX = clamp(Number(radiusX) || 50, 1, 500);
-  radiusY = clamp(Number(radiusY) || 30, 1, 500);
+  radiusX = clamp(Number(radiusX) || 170, 1, 500);
+  radiusY = clamp(Number(radiusY) || 110, 1, 500);
   rotation = (Number(rotation) || 0) * Math.PI / 180;
   const steps = clamp(Math.round(Math.max(radiusX, radiusY) * 0.5), 24, 200);
   const pts = [];
@@ -119,7 +119,7 @@ export function ellipse(cx, cy, radiusX, radiusY, rotation, color, brushSize, op
 
 export function arc(cx, cy, radius, startAngle, endAngle, color, brushSize, opacity, pressureStyle) {
   cx = Number(cx) || 0; cy = Number(cy) || 0;
-  radius = clamp(Number(radius) || 50, 1, 500);
+  radius = clamp(Number(radius) || 150, 1, 500);
   startAngle = (Number(startAngle) || 0) * Math.PI / 180;
   endAngle = (Number(endAngle) || 180) * Math.PI / 180;
   const span = Math.abs(endAngle - startAngle);
@@ -134,8 +134,8 @@ export function arc(cx, cy, radius, startAngle, endAngle, color, brushSize, opac
 
 export function rectangle(cx, cy, width, height, rotation, color, brushSize, opacity, pressureStyle) {
   cx = Number(cx) || 0; cy = Number(cy) || 0;
-  width = clamp(Number(width) || 100, 2, 1000);
-  height = clamp(Number(height) || 100, 2, 1000);
+  width = clamp(Number(width) || 300, 2, 1000);
+  height = clamp(Number(height) || 200, 2, 1000);
   rotation = (Number(rotation) || 0) * Math.PI / 180;
   const hw = width / 2, hh = height / 2;
   const corners = [[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh], [-hw, -hh]];
@@ -148,7 +148,7 @@ export function rectangle(cx, cy, width, height, rotation, color, brushSize, opa
 
 export function polygon(cx, cy, radius, sides, rotation, color, brushSize, opacity, pressureStyle) {
   cx = Number(cx) || 0; cy = Number(cy) || 0;
-  radius = clamp(Number(radius) || 50, 1, 500);
+  radius = clamp(Number(radius) || 150, 1, 500);
   sides = clamp(Math.round(Number(sides) || 6), 3, 24);
   rotation = (Number(rotation) || 0) * Math.PI / 180;
   const pts = [];
@@ -161,8 +161,8 @@ export function polygon(cx, cy, radius, sides, rotation, color, brushSize, opaci
 
 export function star(cx, cy, outerR, innerR, points, rotation, color, brushSize, opacity, pressureStyle) {
   cx = Number(cx) || 0; cy = Number(cy) || 0;
-  outerR = clamp(Number(outerR) || 60, 5, 500);
-  innerR = clamp(Number(innerR) || 30, 2, outerR - 1);
+  outerR = clamp(Number(outerR) || 150, 5, 500);
+  innerR = clamp(Number(innerR) || 65, 2, outerR - 1);
   points = clamp(Math.round(Number(points) || 5), 3, 20);
   rotation = (Number(rotation) || -90) * Math.PI / 180;
   const pts = [];

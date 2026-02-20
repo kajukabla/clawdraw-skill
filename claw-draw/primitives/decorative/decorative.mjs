@@ -14,7 +14,7 @@ export const METADATA = [
     name: 'border', description: 'Decorative border frame (dots, dashes, waves, zigzag)', category: 'decorative',
     parameters: {
       cx: { type: 'number', required: true }, cy: { type: 'number', required: true },
-      width: { type: 'number', min: 20, max: 800, default: 200, description: 'Frame width' },
+      width: { type: 'number', min: 20, max: 800, default: 300, description: 'Frame width' },
       height: { type: 'number', min: 20, max: 800, default: 200, description: 'Frame height' },
       pattern: { type: 'string', options: ['dots', 'dashes', 'waves', 'zigzag'], default: 'dashes', description: 'Border pattern' },
       color: { type: 'string' }, brushSize: { type: 'number', min: 3, max: 100 },
@@ -26,7 +26,7 @@ export const METADATA = [
     name: 'mandala', description: 'Radially symmetric mandala pattern', category: 'decorative',
     parameters: {
       cx: { type: 'number', required: true }, cy: { type: 'number', required: true },
-      radius: { type: 'number', min: 10, max: 500, default: 100, description: 'Overall radius' },
+      radius: { type: 'number', min: 10, max: 500, default: 150, description: 'Overall radius' },
       symmetry: { type: 'number', min: 3, max: 24, default: 8, description: 'Rotational folds' },
       complexity: { type: 'number', min: 1, max: 8, default: 3, description: 'Concentric rings' },
       colors: { type: 'array', description: 'Array of hex colors' },
@@ -39,7 +39,7 @@ export const METADATA = [
     name: 'fractalTree', description: 'Recursive branching tree', category: 'decorative',
     parameters: {
       cx: { type: 'number', required: true }, cy: { type: 'number', required: true },
-      trunkLength: { type: 'number', min: 10, max: 300, default: 80, description: 'Trunk length' },
+      trunkLength: { type: 'number', min: 10, max: 300, default: 100, description: 'Trunk length' },
       branchAngle: { type: 'number', min: 5, max: 60, default: 25, description: 'Branch spread in degrees' },
       depth: { type: 'number', min: 1, max: 8, default: 5, description: 'Recursion depth' },
       color: { type: 'string' }, brushSize: { type: 'number', min: 3, max: 100 },
@@ -52,7 +52,7 @@ export const METADATA = [
     name: 'radialSymmetry', description: 'Complex mandala-like patterns with bezier motifs', category: 'decorative',
     parameters: {
       cx: { type: 'number', required: true }, cy: { type: 'number', required: true },
-      radius: { type: 'number', min: 10, max: 500, default: 120, description: 'Overall radius' },
+      radius: { type: 'number', min: 10, max: 500, default: 150, description: 'Overall radius' },
       folds: { type: 'number', min: 3, max: 24, default: 8, description: 'Rotational folds' },
       layers: { type: 'number', min: 1, max: 8, default: 4, description: 'Concentric layers' },
       complexity: { type: 'number', min: 1, max: 5, default: 3, description: 'Motif complexity' },
@@ -65,7 +65,7 @@ export const METADATA = [
     name: 'sacredGeometry', description: 'Sacred geometry (goldenSpiral, flowerOfLife, metatronsCube, sriYantra)', category: 'decorative',
     parameters: {
       cx: { type: 'number', required: true }, cy: { type: 'number', required: true },
-      radius: { type: 'number', min: 10, max: 500, default: 120, description: 'Overall radius' },
+      radius: { type: 'number', min: 10, max: 500, default: 150, description: 'Overall radius' },
       pattern: { type: 'string', options: ['flowerOfLife', 'goldenSpiral', 'metatronsCube', 'sriYantra'], description: 'Geometry pattern' },
       color: { type: 'string' }, brushSize: { type: 'number', min: 3, max: 100 },
       opacity: { type: 'number', min: 0.01, max: 1 },
@@ -80,7 +80,7 @@ export const METADATA = [
 
 export function border(cx, cy, width, height, pattern, color, brushSize, amplitude, pressureStyle) {
   cx = Number(cx) || 0; cy = Number(cy) || 0;
-  width = clamp(Number(width) || 200, 20, 800);
+  width = clamp(Number(width) || 300, 20, 800);
   height = clamp(Number(height) || 200, 20, 800);
   pattern = String(pattern || 'dashes').toLowerCase();
   brushSize = clamp(Number(brushSize) || 4, 3, 100);
@@ -152,7 +152,7 @@ export function border(cx, cy, width, height, pattern, color, brushSize, amplitu
 
 export function mandala(cx, cy, radius, symmetry, complexity, colors, brushSize, wobbleAmount, pressureStyle) {
   cx = Number(cx) || 0; cy = Number(cy) || 0;
-  radius = clamp(Number(radius) || 100, 10, 500);
+  radius = clamp(Number(radius) || 150, 10, 500);
   symmetry = clamp(Math.round(Number(symmetry) || 8), 3, 24);
   complexity = clamp(Math.round(Number(complexity) || 3), 1, 8);
   brushSize = clamp(Number(brushSize) || 3, 3, 100);
@@ -195,7 +195,7 @@ export function mandala(cx, cy, radius, symmetry, complexity, colors, brushSize,
 
 export function fractalTree(cx, cy, trunkLength, branchAngle, depth, color, brushSize, palette, branchRatio, pressureStyle) {
   cx = Number(cx) || 0; cy = Number(cy) || 0;
-  trunkLength = clamp(Number(trunkLength) || 80, 10, 300);
+  trunkLength = clamp(Number(trunkLength) || 100, 10, 300);
   branchAngle = clamp(Number(branchAngle) || 25, 5, 60) * Math.PI / 180;
   depth = clamp(Math.round(Number(depth) || 5), 1, 8);
   brushSize = clamp(Number(brushSize) || 8, 5, 100);
@@ -225,7 +225,7 @@ export function fractalTree(cx, cy, trunkLength, branchAngle, depth, color, brus
 
 export function radialSymmetry(cx, cy, radius, folds, layers, complexity, colors, brushSize, pressureStyle) {
   cx = Number(cx) || 0; cy = Number(cy) || 0;
-  radius = clamp(Number(radius) || 120, 10, 500);
+  radius = clamp(Number(radius) || 150, 10, 500);
   folds = clamp(Math.round(Number(folds) || 8), 3, 24);
   layers = clamp(Math.round(Number(layers) || 4), 1, 8);
   complexity = clamp(Math.round(Number(complexity) || 3), 1, 5);
@@ -282,7 +282,7 @@ export function radialSymmetry(cx, cy, radius, folds, layers, complexity, colors
 
 export function sacredGeometry(cx, cy, radius, pattern, color, brushSize, opacity, pressureStyle) {
   cx = Number(cx) || 0; cy = Number(cy) || 0;
-  radius = clamp(Number(radius) || 120, 10, 500);
+  radius = clamp(Number(radius) || 150, 10, 500);
   pattern = String(pattern || 'flowerOfLife').toLowerCase().replace(/[^a-z]/g, '');
   brushSize = clamp(Number(brushSize) || 3, 3, 100);
   opacity = clamp(Number(opacity) || 0.8, 0.01, 1);

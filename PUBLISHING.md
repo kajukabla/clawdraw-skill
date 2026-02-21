@@ -151,12 +151,14 @@ Not a scanner issue, but bundled into v0.7.1: all 6 `INSUFFICIENT_INQ` exit poin
 
 ### v0.7.2 Scan Result
 
-The OpenClaw security scanner classified the skill as **benign** with no informational warnings. The registry now correctly reports:
-- "Required env vars: CLAWDRAW_API_KEY"
-- "Required binaries: node"
-- Install spec: npm package `@clawdraw/skill` with `clawdraw` binary
+The OpenClaw security scanner classified the skill as **benign** — no blockers, no suspicion flags. The detailed analysis correctly reads our flat metadata:
+- Scanner sees `primaryEnv: CLAWDRAW_API_KEY`, `requires: { bins: ["node"], env: ["CLAWDRAW_API_KEY"] }`, and the npm install spec
+- Code analysis confirms the skill matches its declared purpose
+- No credential, persistence, or privilege concerns
 
-**What changed:** Flattened SKILL.md frontmatter metadata to match `ClawdisSkillMetadataSchema`. Previously metadata was wrapped under `clawdbot`/`openclaw` namespaces — the registry parser applies the schema directly to the `metadata` value and silently ignores unrecognized keys like namespace wrappers. Flat top-level `primaryEnv`, `requires`, `install` keys are what the schema expects.
+**Known cosmetic issue:** The top-level scan *summary* still reports "Required env vars: none" and "No install spec — instruction-only", even though the detailed analysis correctly reads the values from SKILL.md and metadata. This appears to be a registry-side extraction/display issue — the summary uses a different data source or caching layer than the detailed scanner. It does **not** affect the scan verdict or installability. We cannot fix this from our side; it's a ClawHub registry limitation.
+
+**What changed in v0.7.2:** Flattened SKILL.md frontmatter metadata to match `ClawdisSkillMetadataSchema`. Previously metadata was wrapped under `clawdbot`/`openclaw` namespaces — the registry parser applies the schema directly to the `metadata` value and silently ignores unrecognized keys like namespace wrappers. Flat top-level `primaryEnv`, `requires`, `install` keys are what the schema expects.
 
 **Root cause of the multi-version metadata saga (v0.6.1 through v0.7.1):** Every attempt to fix registry metadata extraction used namespace wrapping (`openclaw`, `clawdbot`, or both). The actual schema is flat. The "use `metadata.openclaw` namespace" advice was our own hypothesis from v0.6.3 — no skill on ClawHub uses namespaced metadata. The schema definition lives at `ClawdisSkillMetadataSchema` in the clawhub CLI (`dist/schema/schemas.js`).
 
@@ -165,6 +167,8 @@ The OpenClaw security scanner classified the skill as **benign** with no informa
 1. **`files` key in frontmatter** — without it, ClawHub classifies the skill as "instruction-only" and skips metadata parsing entirely (fixed in v0.6.4)
 2. **Flat metadata structure** — `primaryEnv`, `requires`, `install` as top-level keys in the metadata JSON, no namespace wrapping (fixed in v0.7.2)
 3. **`requires.env` matches actual usage** — env vars declared in metadata must match what's accessed in code; undeclared env vars trigger suspicion
+
+**What we can't control:** The top-level registry summary display of env vars and install spec appears to use a separate extraction path from the detailed scanner. Even with correct flat metadata, it may show "none". This is cosmetic — the scanner's detailed analysis reads the values correctly and the scan passes.
 
 ---
 

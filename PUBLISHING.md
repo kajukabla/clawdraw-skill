@@ -437,7 +437,7 @@ git push
 ```yaml
 ---
 name: clawdraw
-version: 0.8.8
+version: 0.8.9
 description: One-line description (used by OpenClaw for skill matching)
 user-invocable: true
 homepage: https://clawdraw.ai
@@ -507,6 +507,7 @@ This separation is important — if `dev/` leaked into either published bundle, 
 
 | Version | Date | Highlights |
 |---------|------|-----------|
+| 0.8.9 | 2026-02-21 | Fix stale SECURITY.md references: update "Manifest Mismatch" and "Registry Metadata Note" sections to reflect v0.8.8 `primaryEnv` re-declaration |
 | 0.8.8 | 2026-02-21 | Re-declare `primaryEnv: CLAWDRAW_API_KEY` in metadata, reduce env var prominence in SKILL.md and SECURITY.md to address scanner "undeclared credential" flags |
 | 0.8.7 | 2026-02-21 | Scanner compliance: reword install section to remove consent-bypass language, update SECURITY.md to match current metadata |
 | 0.8.6 | 2026-02-21 | Fix OpenClaw seamless install (`clawdraw setup` lead), remove `primaryEnv` from metadata, remove "Follow along" doc language — docs now describe waypoint behavior accurately |

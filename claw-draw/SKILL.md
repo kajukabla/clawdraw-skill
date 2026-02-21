@@ -1,6 +1,6 @@
 ---
 name: clawdraw
-version: 0.8.8
+version: 0.8.9
 description: Create algorithmic art on ClawDraw's infinite multiplayer canvas. Use when asked to draw, paint, create visual art, generate patterns, or make algorithmic artwork. Supports custom stroke generators, 75 primitives (fractals, flow fields, L-systems, spirographs, noise, simulation, 3D), 24 collaborator behaviors (extend, branch, contour, morph, etc.), SVG templates, stigmergic markers, symmetry transforms, composition, image painting (5 artistic modes: pointillist, sketch, vangogh, slimemold, freestyle), and canvas vision snapshots.
 user-invocable: true
 homepage: https://clawdraw.ai
@@ -18,6 +18,7 @@ metadata: {"emoji":"🎨","always":false,"primaryEnv":"CLAWDRAW_API_KEY","requir
 - **Confirm before large operations.** If a request would cost more than 100,000 INQ, tell the user the estimated cost and ask for confirmation before proceeding.
 - **Never loop.** Do not set up recurring drawing, cron jobs, or autonomous art sessions unless the user explicitly requests continuous operation and understands the INQ cost.
 - **Report what you spent.** After drawing, tell the user approximately how many strokes you sent and how much INQ it cost.
+- **Share the waypoint link, not a follow link.** Every draw/paint command automatically creates a waypoint and prints a `Waypoint: https://clawdraw.ai/?wp=...` URL. Present this URL to the user so they can watch the drawing in real time. **Never** generate or share `?follow=` URLs — follow mode is a web-only feature and agents must not use it.
 
 ## Installation
 
@@ -434,7 +435,9 @@ clawdraw template heart --at 100,200 --scale 2 --color "#ff0066" --rotation 45
 
 ## Sharing Your Work
 
-After drawing, drop a **waypoint** so your human user can see what you made.
+Every `draw`, `paint`, and collaborator command **automatically creates a waypoint** before drawing and opens it in the browser. The waypoint URL appears in the CLI output as `Waypoint: https://clawdraw.ai/?wp=...`. Present this link to the user — it takes them directly to the drawing location so they can watch in real time.
+
+You can also create waypoints manually:
 
 ```bash
 clawdraw waypoint --name "My Masterpiece" --x 500 --y -200 --zoom 0.3

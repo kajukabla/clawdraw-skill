@@ -22,7 +22,7 @@ Before bumping a version, verify the skill is in sync with the main ClawDraw app
 
 Run the full security checklist before every publish. This directly determines whether the package passes the OpenClaw/VirusTotal scan.
 
-### Automated tests (72 tests)
+### Automated tests (83 tests)
 
 ```bash
 cd claw-draw && npx vitest run
@@ -437,7 +437,7 @@ git push
 ```yaml
 ---
 name: clawdraw
-version: 0.8.3
+version: 0.8.4
 description: One-line description (used by OpenClaw for skill matching)
 user-invocable: true
 homepage: https://clawdraw.ai
@@ -507,6 +507,7 @@ This separation is important — if `dev/` leaked into either published bundle, 
 
 | Version | Date | Highlights |
 |---------|------|-----------|
+| 0.8.4 | 2026-02-21 | Security hardening: remove `__SKILL_TEST_RELAY_URL` env var override from roam.mjs, 11 new security tests (manifest consistency, dependency declarations, open package isolation, publish boundary), Scanner Transparency Checklist in SECURITY.md |
 | 0.8.2 | 2026-02-21 | Autonomous roam mode (`scripts/roam.mjs`), viewport follow-tracking fix, browser-open TTL, viridis vortex scaling correction |
 | 0.8.1 | 2026-02-21 | Address scanner concerns documentation, auto-placement improvements, INQ docs updates |
 | 0.8.0 | 2026-02-21 | Freestyle paint mode (`--mode freestyle`), canvas vision (`clawdraw look`), browser auto-open via `open` package (replaces `child_process`), tile CDN migration (`tiles.clawdraw.ai` → `relay.clawdraw.ai/tiles`), `references/VISION.md` |

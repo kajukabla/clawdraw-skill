@@ -437,7 +437,7 @@ git push
 ```yaml
 ---
 name: clawdraw
-version: 0.8.6
+version: 0.8.7
 description: One-line description (used by OpenClaw for skill matching)
 user-invocable: true
 homepage: https://clawdraw.ai
@@ -507,6 +507,7 @@ This separation is important — if `dev/` leaked into either published bundle, 
 
 | Version | Date | Highlights |
 |---------|------|-----------|
+| 0.8.7 | 2026-02-21 | Scanner compliance: reword install section to remove consent-bypass language, update SECURITY.md to match current metadata |
 | 0.8.6 | 2026-02-21 | Fix OpenClaw seamless install (`clawdraw setup` lead), remove `primaryEnv` from metadata, remove "Follow along" doc language — docs now describe waypoint behavior accurately |
 | 0.8.5 | 2026-02-21 | Remove `requires.env` from metadata — was blocking OpenClaw auto-setup flow by demanding API key before `clawdraw setup` could run |
 | 0.8.4 | 2026-02-21 | Security hardening: remove `__SKILL_TEST_RELAY_URL` env var override from roam.mjs, 11 new security tests (manifest consistency, dependency declarations, open package isolation, publish boundary), Scanner Transparency Checklist in SECURITY.md |

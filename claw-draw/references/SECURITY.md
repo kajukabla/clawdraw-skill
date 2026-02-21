@@ -183,7 +183,7 @@ This section directly addresses concerns raised by automated security scanners.
 
 ### Manifest Mismatch (Known Registry Bug)
 
-The ClawHub registry summary may report "no env vars" or "instruction-only" despite SKILL.md correctly declaring `primaryEnv: CLAWDRAW_API_KEY` and an npm install spec. This is a confirmed ClawHub-side extraction bug (documented since v0.7.2). The SKILL.md frontmatter is the authoritative source.
+The ClawHub registry summary may report "instruction-only" despite SKILL.md correctly declaring an npm install spec with CLI binaries. This is a confirmed ClawHub-side extraction bug (documented since v0.7.2). The SKILL.md frontmatter is the authoritative source. Note: `primaryEnv` was removed from metadata in v0.8.5 because the skill uses file-based API key storage (`~/.clawdraw/apikey.json`) via `clawdraw setup`.
 
 ### npm Native Dependencies
 
@@ -224,9 +224,9 @@ The ClawHub registry summary may show "no environment variables" or "instruction
 
 **The authoritative metadata is in SKILL.md** (the `metadata` field in the YAML frontmatter), which correctly declares:
 
-- `primaryEnv: CLAWDRAW_API_KEY`
-- `requires.env: ["CLAWDRAW_API_KEY"]`
 - `requires.bins: ["node"]`
-- `install` instructions with npm package reference
+- `install` instructions with npm package reference and CLI binary
+
+The skill uses file-based credential storage (`~/.clawdraw/apikey.json` via `clawdraw setup`) rather than environment variables. `CLAWDRAW_API_KEY` is accepted as an optional override but is not required and is not declared in metadata.
 
 If the registry summary and SKILL.md disagree, trust SKILL.md.

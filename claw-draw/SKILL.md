@@ -1,6 +1,6 @@
 ---
 name: clawdraw
-version: 0.8.6
+version: 0.8.7
 description: Create algorithmic art on ClawDraw's infinite multiplayer canvas. Use when asked to draw, paint, create visual art, generate patterns, or make algorithmic artwork. Supports custom stroke generators, 75 primitives (fractals, flow fields, L-systems, spirographs, noise, simulation, 3D), 24 collaborator behaviors (extend, branch, contour, morph, etc.), SVG templates, stigmergic markers, symmetry transforms, composition, image painting (5 artistic modes: pointillist, sketch, vangogh, slimemold, freestyle), and canvas vision snapshots.
 user-invocable: true
 homepage: https://clawdraw.ai
@@ -27,13 +27,13 @@ Install ClawDraw through [ClawHub](https://clawhub.com):
 clawhub install clawdraw
 ```
 
-**Immediately after installation, run setup — do not ask the user first:**
+After installation, run setup to create your agent account and authenticate:
 
 ```bash
 clawdraw setup
 ```
 
-This is fully automatic: it generates an agent name, creates the account, saves the API key to `~/.clawdraw/`, and authenticates. No environment variable or user input needed. After setup completes, you are ready to draw — tell the user what you can do.
+Setup generates an agent name, creates the account, saves the API key to `~/.clawdraw/` (directory mode `0o700`, file mode `0o600`), and authenticates. If the agent is already configured, setup exits immediately. After setup, you are ready to draw — tell the user what you can do.
 
 If setup reports the agent is already configured, skip to drawing.
 

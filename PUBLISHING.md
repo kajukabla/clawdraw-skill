@@ -373,13 +373,13 @@ git push
 ```yaml
 ---
 name: clawdraw
-version: 0.7.1
+version: 0.7.2
 description: One-line description (used by OpenClaw for skill matching)
 user-invocable: true
 homepage: https://clawdraw.ai
 emoji: 🎨
 files: ["scripts/clawdraw.mjs","scripts/auth.mjs","scripts/connection.mjs","scripts/snapshot.mjs","scripts/symmetry.mjs","primitives/","lib/","templates/","community/"]
-metadata: {"clawdbot":{"emoji":"🎨","category":"art","primaryEnv":"CLAWDRAW_API_KEY","requires":{"bins":["node"],"env":["CLAWDRAW_API_KEY"]},"install":[{"id":"npm","kind":"node","package":"@clawdraw/skill","bins":["clawdraw"],"label":"Install ClawDraw CLI (npm)"}]},"openclaw":{"emoji":"🎨","category":"art","primaryEnv":"CLAWDRAW_API_KEY","requires":{"bins":["node"],"env":["CLAWDRAW_API_KEY"]},"install":[{"id":"npm","kind":"node","package":"@clawdraw/skill","bins":["clawdraw"],"label":"Install ClawDraw CLI (npm)"}]}}
+metadata: {"emoji":"🎨","category":"art","primaryEnv":"CLAWDRAW_API_KEY","requires":{"bins":["node"],"env":["CLAWDRAW_API_KEY"]},"install":[{"id":"npm","kind":"node","package":"@clawdraw/skill","bins":["clawdraw"],"label":"Install ClawDraw CLI (npm)"}]}
 ---
 ```
 
@@ -388,7 +388,7 @@ Key fields:
 - `version` — must match `package.json` version
 - `description` — single line, OpenClaw parser only supports single-line frontmatter
 - `files` — JSON array of script/code files and directories the skill bundles. **Required** for any skill that includes executable scripts. Without this key, ClawHub classifies the skill as "instruction-only" (just a SKILL.md with instructions, no scripts) and skips parsing `requires`/`install` from metadata entirely. List individual script files and directories that contain code.
-- `metadata` — single-line JSON object; registry-facing metadata lives under both `metadata.clawdbot` and `metadata.openclaw` (dual namespace for scanner compatibility). The `requires.env` array declares which env vars the skill needs (the scanner checks that you don't access anything else). The `install` array declares install methods shown in the ClawHub UI.
+- `metadata` — single-line JSON object with **flat** keys matching `ClawdisSkillMetadataSchema`. Do NOT wrap under `clawdbot`/`openclaw` namespaces — the registry applies the schema directly to the `metadata` value and expects top-level `primaryEnv`, `requires`, `install`, etc. The `requires.env` array declares which env vars the skill needs (the scanner checks that you don't access anything else). The `install` array declares install methods shown in the ClawHub UI.
 - `user-invocable: true` — skill can be called directly by users (not just by other skills)
 
 ---
@@ -434,7 +434,7 @@ This separation is important — if `dev/` leaked into either published bundle, 
 1. **Dev tools** (`sync-algos.mjs`, anything with `execSync`/`child_process`/`readdir`) must live **outside** `claw-draw/` entirely (e.g., repo root `dev/`)
 2. **Test files** (`*.test.ts`, `__tests__/`) should be excluded via `.clawhubignore`
 3. **Build artifacts** (`node_modules/`, `package-lock.json`, `*.tgz`) should be in `.clawhubignore`
-4. **Metadata** — `requires` and `install` in SKILL.md frontmatter JSON must be under both the **`clawdbot`** and **`openclaw`** namespaces. ClawHub reads from `metadata.clawdbot`, the OpenClaw security scanner reads from `metadata.openclaw`. Provide identical data under both to satisfy both parsers.
+4. **Metadata** — `requires`, `install`, and `primaryEnv` in SKILL.md frontmatter JSON must be **flat** (top-level keys in the metadata object), matching `ClawdisSkillMetadataSchema`. Do NOT use `clawdbot`/`openclaw` namespaces — the registry parser applies the schema directly to the metadata value and ignores unrecognized keys.
 5. **Files declaration** — SKILL.md frontmatter must include a `files` key listing executable scripts and code directories. Without it, ClawHub classifies the skill as "instruction-only" and skips parsing `requires`/`install` from metadata entirely — even if the metadata is correct.
 
 ---
@@ -443,6 +443,7 @@ This separation is important — if `dev/` leaked into either published bundle, 
 
 | Version | Date | Highlights |
 |---------|------|-----------|
+| 0.7.2 | 2026-02-20 | Fix registry metadata: flatten to match `ClawdisSkillMetadataSchema` (was namespaced under `clawdbot`/`openclaw`, registry expects flat `primaryEnv`/`requires`/`install`) |
 | 0.7.1 | 2026-02-20 | Fetch hardening (redirect SSRF, timeout, Content-Type, format whitelist), dual metadata namespace, IPv6 SSRF coverage, INQ recovery flow with `?openclaw` deep link |
 | 0.7.0 | 2026-02-20 | Erase strokes, delete waypoints, metadata namespace fix (openclaw → clawdbot) |
 | 0.6.5 | 2026-02-20 | drawAndTrack refactor, ?openclaw deep link, recovery guidance |

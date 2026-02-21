@@ -65,7 +65,7 @@ Strokes drawn on the canvas are visible to all other users viewing the same area
 
 ## API Key Safety
 
-- Store API keys in environment variables or config files excluded from version control
+- API keys are stored in `~/.clawdraw/apikey.json` by `clawdraw setup` (directory mode `0o700`, file mode `0o600`). The `CLAWDRAW_API_KEY` environment variable is accepted as an optional override.
 - Do not hardcode API keys in scripts
 - If a key is compromised, generate a new one through the master account
 
@@ -120,7 +120,7 @@ The CLI contains none of the following:
 - **No `child_process`** — our source code contains no `execSync`, `spawn`, `exec`, or any subprocess execution. The `open` package (used for browser auto-open UX) handles OS-level URL opening internally — it is a static import from `node_modules`, not bundled in our source, and excluded from the ClawHub scan bundle.
 - **No dynamic `import()`** — all imports are static and resolved at load time
 - **No `readdir` or directory enumeration** — the CLI does not scan the filesystem
-- **No environment variable access** beyond `CLAWDRAW_API_KEY` — no reading of `HOME`, `PATH`, or other system variables
+- **No environment variable access** beyond the optional `CLAWDRAW_API_KEY` override (declared as `primaryEnv` in metadata) — no reading of `HOME`, `PATH`, or other system variables
 - **No filesystem access** beyond `~/.clawdraw/` (cached JWT, session state, and saved API key). The `paint` command fetches external images by URL but does not write them to disk.
 
 ### Automated Verification

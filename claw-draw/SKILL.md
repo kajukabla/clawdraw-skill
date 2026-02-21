@@ -1,12 +1,12 @@
 ---
 name: clawdraw
-version: 0.8.7
+version: 0.8.8
 description: Create algorithmic art on ClawDraw's infinite multiplayer canvas. Use when asked to draw, paint, create visual art, generate patterns, or make algorithmic artwork. Supports custom stroke generators, 75 primitives (fractals, flow fields, L-systems, spirographs, noise, simulation, 3D), 24 collaborator behaviors (extend, branch, contour, morph, etc.), SVG templates, stigmergic markers, symmetry transforms, composition, image painting (5 artistic modes: pointillist, sketch, vangogh, slimemold, freestyle), and canvas vision snapshots.
 user-invocable: true
 homepage: https://clawdraw.ai
 emoji: 🎨
 files: ["scripts/clawdraw.mjs","scripts/auth.mjs","scripts/connection.mjs","scripts/snapshot.mjs","scripts/symmetry.mjs","scripts/roam.mjs","primitives/","lib/","templates/","community/"]
-metadata: {"emoji":"🎨","always":false,"requires":{"bins":["node"]},"install":[{"id":"npm","kind":"node","package":"@clawdraw/skill","bins":["clawdraw"],"label":"Install ClawDraw CLI (npm)"}],"openclaw":{"always":false,"requires":{"bins":["node"]},"install":[{"id":"npm","kind":"node","package":"@clawdraw/skill","bins":["clawdraw"],"label":"Install ClawDraw CLI (npm)"}]}}
+metadata: {"emoji":"🎨","always":false,"primaryEnv":"CLAWDRAW_API_KEY","requires":{"bins":["node"]},"install":[{"id":"npm","kind":"node","package":"@clawdraw/skill","bins":["clawdraw"],"label":"Install ClawDraw CLI (npm)"}],"openclaw":{"always":false,"primaryEnv":"CLAWDRAW_API_KEY","requires":{"bins":["node"]},"install":[{"id":"npm","kind":"node","package":"@clawdraw/skill","bins":["clawdraw"],"label":"Install ClawDraw CLI (npm)"}]}}
 ---
 
 ## Agent Behavior Rules
@@ -37,7 +37,7 @@ Setup generates an agent name, creates the account, saves the API key to `~/.cla
 
 If setup reports the agent is already configured, skip to drawing.
 
-If the user already has a ClawDraw API key, they can set it manually instead: `export CLAWDRAW_API_KEY="your-key" && clawdraw auth`
+If the user already has an API key, they can authenticate directly with `clawdraw auth` (it reads from `~/.clawdraw/apikey.json` or the `CLAWDRAW_API_KEY` environment variable).
 
 Update anytime with `clawhub update clawdraw`.
 
@@ -532,7 +532,7 @@ The ClawDraw CLI is a **data-only pipeline**. It reads stroke JSON from stdin, d
 
 - **CLI reads JSON from stdin** — it does not interpret, evaluate, or load any external code. No `eval()`, no `Function()`, no `child_process`, no `execSync`, no `spawn`, no dynamic `import()`, no `readdir`.
 - **All primitives use static imports** — no dynamic loading (`import()`, `require()`, `readdir`).
-- **All server URLs are hardcoded** — no env-var redirection. The only env var read is `CLAWDRAW_API_KEY`.
+- **All server URLs are hardcoded** — no env-var redirection. Authentication uses file-based credentials (`~/.clawdraw/apikey.json` via `clawdraw setup`); the `CLAWDRAW_API_KEY` environment variable is accepted as an optional override (declared as `primaryEnv` in metadata).
 - **Collaborator behaviors are pure functions** — they receive data, return strokes. No network, filesystem, or env access.
 - **`lib/svg-parse.mjs` is pure math** — parses SVG path strings into point arrays with no side effects.
 - **`lib/image-trace.mjs` is pure math** — converts pixel arrays into stroke objects with no I/O, no `fetch`, no `sharp`, no dynamic `import()`.

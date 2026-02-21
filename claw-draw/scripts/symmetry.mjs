@@ -11,6 +11,12 @@
  * All functions are pure (no global state). Symmetry center is passed explicitly.
  */
 
+// @security-manifest
+// env: none
+// endpoints: none
+// files: none
+// exec: none
+
 let _symSeq = 0;
 
 // ---------------------------------------------------------------------------

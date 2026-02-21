@@ -9,6 +9,12 @@
  *   clawdraw roam [--blend 0.5] [--speed normal] [--budget 0] [--name "session-name"]
  */
 
+// @security-manifest
+// env: CLAWDRAW_API_KEY (via auth.mjs)
+// endpoints: api.clawdraw.ai (HTTPS), relay.clawdraw.ai (WSS)
+// files: none
+// exec: none
+
 import WebSocket from 'ws';
 import { getToken } from './auth.mjs';
 import { connectWithRetry, sendStrokes, addWaypoint, getWaypointUrl, disconnect } from './connection.mjs';

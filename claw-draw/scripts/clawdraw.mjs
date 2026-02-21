@@ -47,7 +47,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { getToken, createAgent, getAgentInfo, writeApiKey } from './auth.mjs';
+import { getToken, createAgent, getAgentInfo, writeApiKey, readApiKey } from './auth.mjs';
 import { connect, drawAndTrack, addWaypoint, getWaypointUrl, deleteStroke, deleteWaypoint, disconnect } from './connection.mjs';
 import { parseSymmetryMode, applySymmetry } from './symmetry.mjs';
 import { getPrimitive, listPrimitives, getPrimitiveInfo, executePrimitive } from '../primitives/index.mjs';
@@ -220,14 +220,11 @@ async function cmdSetup(providedName) {
     process.exit(0);
   }
 
-  // Check for existing saved key
-  try {
-    const token = await getToken();  // will find file-based key if it exists
+  // Check for existing saved key file
+  if (readApiKey()) {
     console.log('Already set up! API key found in ~/.clawdraw/');
     console.log('Run `clawdraw status` to check your agent info.');
     process.exit(0);
-  } catch {
-    // No key found — proceed with setup
   }
 
   // Generate or validate name

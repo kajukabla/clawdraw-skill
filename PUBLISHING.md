@@ -123,6 +123,8 @@ This made the skill appear to hide its env-var requirement and install mechanism
 
 **Lesson:** The `metadata` value in SKILL.md frontmatter must be **flat** — keys directly matching `ClawdisSkillMetadataSchema`. No `clawdbot`/`openclaw`/any namespace wrapping. The "use `metadata.openclaw` namespace" advice from v0.6.3 was our own hypothesis — it was wrong, and no skill on ClawHub actually uses namespaced metadata for `requires`/`install`.
 
+**Update (v0.8.3):** The `openclaw` namespace was never tested *with* the `files` key present (v0.6.3 predated the `files` fix in v0.6.4). Official ClawHub docs show `metadata.openclaw` as canonical. v0.8.3 tests belt-and-suspenders: flat keys + `openclaw` namespace duplicate. If the summary still shows "none", it's definitively a registry-side bug.
+
 #### Issue 2: Image processing attack surface (`cmdPaint`)
 
 The `cmdPaint` command fetches untrusted external URLs and processes them with `sharp` (libvips native addon). The scanner flagged:
@@ -189,6 +191,24 @@ The registry metadata scan returned **Suspicious (High Confidence)** — same ro
 *(Pending — check ClawHub scanner after publish)*
 
 **What changed from v0.8.1:** Added `scripts/roam.mjs` (autonomous roam mode), viewport follow-tracking fix in `connection.mjs`, browser-open TTL, viridis vortex scaling correction. `roam.mjs` uses the same patterns as existing scripts — `process.env.CLAWDRAW_API_KEY` only, no `child_process`, no `eval`, no dynamic `import()`, no `readdir`. The `__SKILL_TEST_RELAY_URL` env var is test-only and lives in `scripts/` (not `primitives/` or `lib/`), matching existing patterns.
+
+### v0.8.3 Scan Approach: `openclaw` namespace + scanner checklist sections
+
+**Hypothesis:** The registry summary extractor may use YAML-path lookup (e.g. `metadata.openclaw.primaryEnv`) rather than reading flat keys. Every previous version tested either flat-only (v0.7.2+) or namespaced-only (v0.6.3, v0.7.0–v0.7.1) — but no version tested `openclaw` namespace *with* the `files` key present. The `files` key was added in v0.6.4, and v0.6.3 (which used `openclaw`) predated it. After v0.6.4, all namespace tests used `clawdbot` (v0.7.0) or dual `clawdbot`+`openclaw` (v0.7.1), never `openclaw` alone. Additionally, web research found the official ClawHub docs show `metadata.openclaw` as the canonical namespace.
+
+**Changes in v0.8.3:**
+
+1. **Belt-and-suspenders metadata:** Keep flat keys (proven for detailed scanner) AND add `openclaw`-namespaced duplicate (untested combination targeting summary extractor). Removed `category: art` (not in schema). Added `always: false` at both levels.
+2. **External Endpoints table** in SKILL.md — scanner checklist item listing all outbound connections with protocol, purpose, and data sent.
+3. **Model Invocation Notice** in SKILL.md — confirms opt-in only, no auto-execute.
+4. **Trust Statement** in SKILL.md — summarizes data handling and privacy posture.
+5. **`@security-manifest` headers** on all 6 published scripts — structured comments declaring env vars, endpoints, files, and exec usage for automated scanner verification.
+6. **Paint mode selection bias fix** — routing examples no longer hardcode vangogh; agents now choose mode from the table based on subject.
+
+**Expected outcomes:**
+- If summary now shows env vars/install spec → `openclaw` namespace was the missing piece
+- If summary still shows "none" → confirmed as registry-side extraction bug, unfixable from our code. Document and move on.
+- Scanner checklist sections (endpoints, invocation, trust) should reduce informational warnings regardless
 
 ---
 
@@ -417,13 +437,13 @@ git push
 ```yaml
 ---
 name: clawdraw
-version: 0.7.2
+version: 0.8.3
 description: One-line description (used by OpenClaw for skill matching)
 user-invocable: true
 homepage: https://clawdraw.ai
 emoji: 🎨
 files: ["scripts/clawdraw.mjs","scripts/auth.mjs","scripts/connection.mjs","scripts/snapshot.mjs","scripts/symmetry.mjs","scripts/roam.mjs","primitives/","lib/","templates/","community/"]
-metadata: {"emoji":"🎨","category":"art","primaryEnv":"CLAWDRAW_API_KEY","requires":{"bins":["node"],"env":["CLAWDRAW_API_KEY"]},"install":[{"id":"npm","kind":"node","package":"@clawdraw/skill","bins":["clawdraw"],"label":"Install ClawDraw CLI (npm)"}]}
+metadata: {"emoji":"🎨","primaryEnv":"CLAWDRAW_API_KEY","always":false,"requires":{"bins":["node"],"env":["CLAWDRAW_API_KEY"]},"install":[{"id":"npm","kind":"node","package":"@clawdraw/skill","bins":["clawdraw"],"label":"Install ClawDraw CLI (npm)"}],"openclaw":{"primaryEnv":"CLAWDRAW_API_KEY","always":false,"requires":{"bins":["node"],"env":["CLAWDRAW_API_KEY"]},"install":[{"id":"npm","kind":"node","package":"@clawdraw/skill","bins":["clawdraw"],"label":"Install ClawDraw CLI (npm)"}]}}
 ---
 ```
 
@@ -432,7 +452,7 @@ Key fields:
 - `version` — must match `package.json` version
 - `description` — single line, OpenClaw parser only supports single-line frontmatter
 - `files` — JSON array of script/code files and directories the skill bundles. **Required** for any skill that includes executable scripts. Without this key, ClawHub classifies the skill as "instruction-only" (just a SKILL.md with instructions, no scripts) and skips parsing `requires`/`install` from metadata entirely. List individual script files and directories that contain code.
-- `metadata` — single-line JSON object with **flat** keys matching `ClawdisSkillMetadataSchema`. Do NOT wrap under `clawdbot`/`openclaw` namespaces — the registry applies the schema directly to the `metadata` value and expects top-level `primaryEnv`, `requires`, `install`, etc. The `requires.env` array declares which env vars the skill needs (the scanner checks that you don't access anything else). The `install` array declares install methods shown in the ClawHub UI.
+- `metadata` — single-line JSON object with **flat** keys matching `ClawdisSkillMetadataSchema` PLUS an `openclaw` namespace duplicate (belt-and-suspenders). The flat keys are proven to work with the detailed scanner. The `openclaw`-namespaced duplicate targets the summary extractor, which may use YAML-path lookup (e.g. `metadata.openclaw.primaryEnv`). Also includes `always: false` as an explicit trust signal. The `requires.env` array declares which env vars the skill needs (the scanner checks that you don't access anything else). The `install` array declares install methods shown in the ClawHub UI. **Removed `category: art`** — not in `ClawdisSkillMetadataSchema`, could confuse the parser.
 - `user-invocable: true` — skill can be called directly by users (not just by other skills)
 
 ---
@@ -478,7 +498,7 @@ This separation is important — if `dev/` leaked into either published bundle, 
 1. **Dev tools** (`sync-algos.mjs`, anything with `execSync`/`child_process`/`readdir`) must live **outside** `claw-draw/` entirely (e.g., repo root `dev/`)
 2. **Test files** (`*.test.ts`, `__tests__/`) should be excluded via `.clawhubignore`
 3. **Build artifacts** (`node_modules/`, `package-lock.json`, `*.tgz`) should be in `.clawhubignore`
-4. **Metadata** — `requires`, `install`, and `primaryEnv` in SKILL.md frontmatter JSON must be **flat** (top-level keys in the metadata object), matching `ClawdisSkillMetadataSchema`. Do NOT use `clawdbot`/`openclaw` namespaces — the registry parser applies the schema directly to the metadata value and ignores unrecognized keys.
+4. **Metadata** — `requires`, `install`, and `primaryEnv` in SKILL.md frontmatter JSON must be **flat** (top-level keys in the metadata object), matching `ClawdisSkillMetadataSchema`. As of v0.8.3 we also include an `openclaw`-namespaced duplicate (belt-and-suspenders) — this targets the registry summary extractor which may use YAML-path lookup. The flat keys serve the detailed scanner; the `openclaw` namespace serves the summary.
 5. **Files declaration** — SKILL.md frontmatter must include a `files` key listing executable scripts and code directories. Without it, ClawHub classifies the skill as "instruction-only" and skips parsing `requires`/`install` from metadata entirely — even if the metadata is correct.
 
 ---

@@ -49,14 +49,15 @@ Both services run on Cloudflare's edge network.
 
 ### Local Files
 
-The skill creates exactly two files, both in `~/.clawdraw/`:
+The skill creates up to three files, all in `~/.clawdraw/` (directory mode `0o700`):
 
 | File | Content | Lifecycle |
 |------|---------|-----------|
-| `~/.clawdraw/token.json` | Short-lived JWT (~5 minute expiry) | Auto-refreshed when expired; deleted on re-auth |
-| `~/.clawdraw/state.json` | Session state: `hasCustomAlgorithm` flag + timestamp | Persistent; records whether a custom algorithm has been used |
+| `token.json` | Short-lived JWT (~5 min expiry), mode `0o600` | Auto-refreshed when expired |
+| `state.json` | `hasCustomAlgorithm` flag + timestamp | Persistent |
+| `apikey.json` | Agent API key + metadata, mode `0o600` | Created by `clawdraw setup`; persists for auth fallback |
 
-No other files are created anywhere on the filesystem. The `paint` command fetches images into memory only — nothing is written to disk.
+No other files are created. The `paint` command fetches images into memory only — nothing is written to disk.
 
 ## Public Visibility
 
@@ -120,7 +121,7 @@ The CLI contains none of the following:
 - **No dynamic `import()`** — all imports are static and resolved at load time
 - **No `readdir` or directory enumeration** — the CLI does not scan the filesystem
 - **No environment variable access** beyond `CLAWDRAW_API_KEY` — no reading of `HOME`, `PATH`, or other system variables
-- **No filesystem access** beyond `~/.clawdraw/` (cached JWT and session state). The `paint` command fetches external images by URL but does not write them to disk.
+- **No filesystem access** beyond `~/.clawdraw/` (cached JWT, session state, and saved API key). The `paint` command fetches external images by URL but does not write them to disk.
 
 ### Automated Verification
 

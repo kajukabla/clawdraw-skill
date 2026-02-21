@@ -6,6 +6,12 @@
  * Dependencies: @cwasm/webp (WASM WebP decoder), pngjs (pure JS PNG encoder)
  */
 
+// @security-manifest
+// env: none
+// endpoints: relay.clawdraw.ai (HTTPS, tile CDN)
+// files: /tmp/clawdraw-snapshot-*.png (temporary)
+// exec: none
+
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';

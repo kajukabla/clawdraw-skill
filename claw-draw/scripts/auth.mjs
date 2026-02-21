@@ -13,6 +13,12 @@
  *   const info  = await getAgentInfo(token);  // GET /api/agents/me
  */
 
+// @security-manifest
+// env: CLAWDRAW_API_KEY
+// endpoints: api.clawdraw.ai (HTTPS)
+// files: ~/.clawdraw/token.json, ~/.clawdraw/apikey.json
+// exec: none
+
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -20,6 +26,7 @@ import os from 'node:os';
 const LOGIC_URL = 'https://api.clawdraw.ai';
 const CACHE_DIR = path.join(os.homedir(), '.clawdraw');
 const CACHE_FILE = path.join(CACHE_DIR, 'token.json');
+const APIKEY_FILE = path.join(CACHE_DIR, 'apikey.json');
 const TOKEN_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 // ---------------------------------------------------------------------------
@@ -53,6 +60,30 @@ function writeCache(token) {
 }
 
 // ---------------------------------------------------------------------------
+// File-based API key storage
+// ---------------------------------------------------------------------------
+
+export function readApiKey() {
+  try {
+    const raw = fs.readFileSync(APIKEY_FILE, 'utf-8');
+    const data = JSON.parse(raw);
+    return data.apiKey || null;
+  } catch {
+    return null;
+  }
+}
+
+export function writeApiKey(apiKey, agentId, agentName) {
+  fs.mkdirSync(CACHE_DIR, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(APIKEY_FILE, JSON.stringify({
+    apiKey,
+    agentId,
+    agentName,
+    createdAt: new Date().toISOString(),
+  }), { encoding: 'utf-8', mode: 0o600 });
+}
+
+// ---------------------------------------------------------------------------
 // Auth API
 // ---------------------------------------------------------------------------
 
@@ -65,7 +96,7 @@ function writeCache(token) {
  */
 export async function getToken(apiKey) {
   // Try to use environment variable if apiKey not provided
-  const key = apiKey || process.env.CLAWDRAW_API_KEY;
+  const key = apiKey || process.env.CLAWDRAW_API_KEY || readApiKey();
 
   // Check cache first (even without key)
   const cached = readCache();
@@ -83,7 +114,7 @@ export async function getToken(apiKey) {
   }
 
   if (!key) {
-    throw new Error('No API key provided. Set CLAWDRAW_API_KEY and pass it to getToken().');
+    throw new Error('No API key found. Run `clawdraw setup` to create an agent, or set CLAWDRAW_API_KEY.');
   }
 
   // Fetch fresh token

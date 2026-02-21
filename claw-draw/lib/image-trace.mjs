@@ -650,3 +650,125 @@ export function traceImage(pixelData, options = {}) {
       throw new Error(`Unknown paint mode: "${mode}". Use pointillist, sketch, vangogh, or slimemold.`);
   }
 }
+
+// ---------------------------------------------------------------------------
+// Region analysis for freestyle mode
+// ---------------------------------------------------------------------------
+
+/**
+ * Analyze an image by dividing it into a grid of regions, computing visual
+ * characteristics for each cell.  Pure math — uses only existing internal
+ * helpers (sampleRgb, sampleGray, pixToCanvas, computeSobel, rgbToHex, clamp).
+ *
+ * @param {object} pixelData  — Same shape as traceImage input
+ * @param {object} [options]
+ * @param {number} [options.density=1.0]
+ * @returns {Array<{ row, col, cx, cy, cellWidth, cellHeight, color, brightness, edgeDensity, colorVariance, transparent }>}
+ */
+export function analyzeRegions(pixelData, options = {}) {
+  const { rgba, gray, width, height, canvasWidth, canvasHeight } = pixelData;
+  const density = options.density || 1.0;
+  const aspect = width / height;
+
+  const gridCols = clamp(Math.round(6 * density), 4, 10);
+  const gridRows = clamp(Math.round(gridCols / aspect), 4, 10);
+
+  // Compute Sobel once for whole image
+  const sobel = computeSobel(gray, width, height);
+
+  // Normalize Sobel magnitudes to 0-1
+  let maxMag = 0;
+  for (let i = 0; i < sobel.magnitude.length; i++) {
+    if (sobel.magnitude[i] > maxMag) maxMag = sobel.magnitude[i];
+  }
+  const invMax = maxMag > 0 ? 1 / maxMag : 0;
+
+  const cellW = width / gridCols;
+  const cellH = height / gridRows;
+  const regions = [];
+
+  for (let row = 0; row < gridRows; row++) {
+    for (let col = 0; col < gridCols; col++) {
+      const x0 = Math.floor(col * cellW);
+      const y0 = Math.floor(row * cellH);
+      const x1 = Math.min(Math.floor((col + 1) * cellW), width);
+      const y1 = Math.min(Math.floor((row + 1) * cellH), height);
+
+      let rSum = 0, gSum = 0, bSum = 0;
+      let graySum = 0;
+      let edgeCount = 0;
+      let transparentCount = 0;
+      let pixelCount = 0;
+
+      // First pass: averages
+      for (let py = y0; py < y1; py++) {
+        for (let px = x0; px < x1; px++) {
+          pixelCount++;
+          const ai = (py * width + px) * 4 + 3;
+          if (rgba[ai] < 128) {
+            transparentCount++;
+            continue;
+          }
+          const [r, g, b] = sampleRgb(rgba, px, py, width, height);
+          rSum += r;
+          gSum += g;
+          bSum += b;
+          graySum += sampleGray(gray, px, py, width, height);
+
+          const normMag = sobel.magnitude[py * width + px] * invMax;
+          if (normMag > 0.15) edgeCount++;
+        }
+      }
+
+      // Skip transparent cells
+      if (transparentCount > pixelCount * 0.5) continue;
+
+      const opaqueCount = pixelCount - transparentCount;
+      if (opaqueCount === 0) continue;
+
+      const avgR = rSum / opaqueCount;
+      const avgG = gSum / opaqueCount;
+      const avgB = bSum / opaqueCount;
+      const brightness = (graySum / opaqueCount) / 255;
+      const edgeDensity = edgeCount / opaqueCount;
+
+      // Second pass: color variance
+      let varR = 0, varG = 0, varB = 0;
+      for (let py = y0; py < y1; py++) {
+        for (let px = x0; px < x1; px++) {
+          const ai = (py * width + px) * 4 + 3;
+          if (rgba[ai] < 128) continue;
+          const [r, g, b] = sampleRgb(rgba, px, py, width, height);
+          varR += (r - avgR) ** 2;
+          varG += (g - avgG) ** 2;
+          varB += (b - avgB) ** 2;
+        }
+      }
+      const colorVariance = clamp(
+        ((varR + varG + varB) / (opaqueCount * 3)) / (255 * 255),
+        0, 1,
+      );
+
+      // Map cell center to canvas coordinates
+      const centerPx = (col + 0.5) * cellW;
+      const centerPy = (row + 0.5) * cellH;
+      const canvasPos = pixToCanvas(centerPx, centerPy, pixelData);
+
+      regions.push({
+        row,
+        col,
+        cx: canvasPos.x,
+        cy: canvasPos.y,
+        cellWidth: (cellW / width) * canvasWidth,
+        cellHeight: (cellH / height) * canvasHeight,
+        color: rgbToHex(Math.round(avgR), Math.round(avgG), Math.round(avgB)),
+        brightness,
+        edgeDensity,
+        colorVariance,
+        transparent: false,
+      });
+    }
+  }
+
+  return regions;
+}

@@ -15,6 +15,7 @@
  *   clawdraw list                       List all primitives
  *   clawdraw info <name>                Show primitive parameters
  *   clawdraw scan [--cx N] [--cy N]     Scan nearby canvas for existing strokes
+ *   clawdraw look [--cx N] [--cy N] [--radius N]  Capture canvas screenshot as PNG
  *   clawdraw find-space [--mode empty|adjacent]  Find a spot on the canvas to draw
  *   clawdraw nearby [--x N] [--y N] [--radius N]  Analyze strokes near a point
  *   clawdraw link                       Generate a link code to connect web account
@@ -46,7 +47,8 @@ import { getPrimitive, listPrimitives, getPrimitiveInfo, executePrimitive } from
 import { setNearbyCache } from '../primitives/collaborator.mjs';
 import { makeStroke } from '../primitives/helpers.mjs';
 import { parseSvgPath, parseSvgPathMulti } from '../lib/svg-parse.mjs';
-import { traceImage } from '../lib/image-trace.mjs';
+import { traceImage, analyzeRegions } from '../lib/image-trace.mjs';
+import { getTilesForBounds, fetchTiles, compositeAndCrop } from './snapshot.mjs';
 import { lookup } from 'node:dns/promises';
 import sharp from 'sharp';
 
@@ -1303,6 +1305,239 @@ async function cmdCollaborate(behaviorName, args) {
 }
 
 // ---------------------------------------------------------------------------
+// Look — canvas screenshot without drawing
+// ---------------------------------------------------------------------------
+
+const TILE_CDN_URL = 'https://relay.clawdraw.ai/tiles';
+
+async function cmdLook(args) {
+  const cx = Number(args.cx) || 0;
+  const cy = Number(args.cy) || 0;
+  const radius = Math.max(100, Math.min(3000, Number(args.radius) || 500));
+
+  // Build bounding box from center + radius
+  const bbox = {
+    minX: cx - radius,
+    minY: cy - radius,
+    maxX: cx + radius,
+    maxY: cy + radius,
+  };
+
+  // Map to tile coordinates and fetch from CDN (no auth needed)
+  const grid = getTilesForBounds(bbox);
+  console.log(`Fetching ${grid.tiles.length} tile(s) at (${cx}, ${cy}) radius=${radius}...`);
+  const tileBuffers = await fetchTiles(TILE_CDN_URL, grid.tiles);
+
+  // Composite and crop to PNG
+  const pngBuf = compositeAndCrop(tileBuffers, grid, bbox);
+
+  // Save to temp file
+  const imagePath = path.join(os.tmpdir(), `clawdraw-look-${Date.now()}.png`);
+  fs.writeFileSync(imagePath, pngBuf);
+
+  // Compute pixel dimensions for reporting
+  const UNITS_PER_PX = 4; // 1024 canvas units / 256 tile pixels
+  const pxW = Math.ceil((bbox.maxX - bbox.minX) / UNITS_PER_PX);
+  const pxH = Math.ceil((bbox.maxY - bbox.minY) / UNITS_PER_PX);
+
+  console.log(`Canvas snapshot saved: ${imagePath}`);
+  console.log(`  Area: (${cx - radius}, ${cy - radius}) to (${cx + radius}, ${cy + radius})`);
+  console.log(`  Image: ${pxW}x${pxH} pixels`);
+  console.log('');
+  console.log('Read this file to visually inspect the canvas at this location.');
+}
+
+// ---------------------------------------------------------------------------
+// Freestyle paint mode — mixed-media mosaic using primitives
+// ---------------------------------------------------------------------------
+
+/**
+ * Classify a region into a visual group based on edge density, brightness,
+ * and color variance.
+ */
+function classifyRegion(region) {
+  const { edgeDensity, brightness, colorVariance } = region;
+
+  // highVariance overrides everything
+  if (colorVariance > 0.35) return 'highVariance';
+
+  // textured — moderate edges with color variation
+  if (edgeDensity > 0.15 && edgeDensity <= 0.45 && colorVariance > 0.15) return 'textured';
+
+  // edge-heavy
+  if (edgeDensity > 0.3) {
+    return brightness > 0.5 ? 'focalBright' : 'edgeDark';
+  }
+
+  // smooth
+  return brightness > 0.45 ? 'smoothBright' : 'smoothDark';
+}
+
+/** Candidate primitives for each visual group. */
+const PRIMITIVE_GROUPS = {
+  focalBright:  ['mandala', 'spirograph', 'starburst', 'sacredGeometry', 'star', 'phyllotaxisSpiral'],
+  edgeDark:     ['crossHatch', 'hatchFill', 'flowField'],
+  smoothBright: ['flower', 'phyllotaxisSpiral', 'spiral', 'colorWash'],
+  smoothDark:   ['stipple', 'solidFill', 'hatchFill'],
+  textured:     ['flowField', 'voronoiNoise', 'domainWarping', 'hexGrid'],
+  highVariance: ['voronoiNoise', 'lichenGrowth'],
+};
+
+/** Primitives that use a `radius` parameter. */
+const RADIUS_PRIMS = new Set(['mandala', 'sacredGeometry', 'phyllotaxisSpiral']);
+/** Primitives that use `outerR` / `innerR`. */
+const OUTER_R_PRIMS = new Set(['spirograph', 'star']);
+/** Primitives that use `outerRadius` / `innerRadius`. */
+const OUTER_RADIUS_PRIMS = new Set(['starburst']);
+/** Primitives that use `petalLength` / `petalWidth`. */
+const PETAL_PRIMS = new Set(['flower']);
+/** Primitives that use `endRadius`. */
+const END_RADIUS_PRIMS = new Set(['spiral']);
+/** Primitives that use `size` (hexGrid). */
+const SIZE_PRIMS = new Set(['hexGrid']);
+
+/**
+ * Build primitive-specific arguments for a region cell.
+ */
+function buildPrimitiveArgs(region, primName) {
+  const { cx, cy, cellWidth, cellHeight, color } = region;
+  const fitRadius = Math.min(cellWidth, cellHeight) / 2 * 0.85;
+
+  const args = { cx, cy, color, brushSize: 3 };
+
+  if (RADIUS_PRIMS.has(primName)) {
+    args.radius = fitRadius;
+  } else if (OUTER_R_PRIMS.has(primName)) {
+    args.outerR = fitRadius;
+    args.innerR = fitRadius * 0.4;
+  } else if (OUTER_RADIUS_PRIMS.has(primName)) {
+    args.outerRadius = fitRadius;
+    args.innerRadius = fitRadius * 0.15;
+  } else if (PETAL_PRIMS.has(primName)) {
+    args.petalLength = fitRadius * 0.7;
+    args.petalWidth = fitRadius * 0.3;
+  } else if (END_RADIUS_PRIMS.has(primName)) {
+    args.endRadius = fitRadius;
+  } else if (SIZE_PRIMS.has(primName)) {
+    args.size = fitRadius * 2;
+    args.hexSize = fitRadius * 0.3;
+  } else {
+    // Width/height primitives (fills, flowField, voronoi, etc.)
+    args.width = cellWidth * 0.85;
+    args.height = cellHeight * 0.85;
+  }
+
+  // Cost-control overrides
+  if (primName === 'phyllotaxisSpiral') args.numPoints = 50;
+  if (primName === 'voronoiNoise') args.numCells = 8;
+  if (primName === 'flowField') { args.density = 0.3; args.traceLength = 20; }
+  if (primName === 'lichenGrowth') args.iterations = 3;
+
+  return args;
+}
+
+/**
+ * Generate subtle connector strokes between adjacent cells.
+ */
+function generateConnectors(regions) {
+  const lookup = new Map();
+  for (const r of regions) {
+    lookup.set(`${r.row},${r.col}`, r);
+  }
+
+  const connectors = [];
+  for (const r of regions) {
+    // 30% chance to connect to right neighbor
+    const right = lookup.get(`${r.row},${r.col + 1}`);
+    if (right && Math.random() < 0.3) {
+      const midX = (r.cx + right.cx) / 2;
+      const midY = (r.cy + right.cy) / 2 + (Math.random() - 0.5) * r.cellHeight * 0.3;
+      // Use the darker of the two colors
+      const darkerColor = r.brightness <= right.brightness ? r.color : right.color;
+      connectors.push(makeStroke(
+        [{ x: r.cx, y: r.cy }, { x: midX, y: midY }, { x: right.cx, y: right.cy }],
+        darkerColor,
+        3,
+        0.4,
+        'taper',
+      ));
+    }
+
+    // 30% chance to connect to bottom neighbor
+    const bottom = lookup.get(`${r.row + 1},${r.col}`);
+    if (bottom && Math.random() < 0.3) {
+      const midX = (r.cx + bottom.cx) / 2 + (Math.random() - 0.5) * r.cellWidth * 0.3;
+      const midY = (r.cy + bottom.cy) / 2;
+      const darkerColor = r.brightness <= bottom.brightness ? r.color : bottom.color;
+      connectors.push(makeStroke(
+        [{ x: r.cx, y: r.cy }, { x: midX, y: midY }, { x: bottom.cx, y: bottom.cy }],
+        darkerColor,
+        3,
+        0.4,
+        'taper',
+      ));
+    }
+  }
+
+  return connectors;
+}
+
+/**
+ * Render a freestyle mixed-media mosaic from analyzed regions.
+ * Each region is rendered with a different primitive chosen by its visual
+ * characteristics, with diversity bias to maximize variety.
+ */
+function renderFreestyle(regions, options = {}) {
+  // Sort by brightness ascending (dark background first, bright foreground last)
+  const sorted = [...regions].sort((a, b) => a.brightness - b.brightness);
+
+  const usageCount = new Map();
+  const allStrokes = [];
+
+  for (const region of sorted) {
+    if (region.transparent) continue;
+
+    const group = classifyRegion(region);
+    const candidates = PRIMITIVE_GROUPS[group] || PRIMITIVE_GROUPS.smoothBright;
+
+    // Diversity bias: sort candidates by usage count ascending + random jitter
+    const ranked = candidates
+      .map(name => ({ name, score: (usageCount.get(name) || 0) + Math.random() * 0.5 }))
+      .sort((a, b) => a.score - b.score);
+
+    let primName = ranked[0].name;
+    let args = buildPrimitiveArgs(region, primName);
+    let strokes;
+
+    try {
+      strokes = executePrimitive(primName, args);
+    } catch {
+      // Fallback to colorWash on error
+      try {
+        primName = 'colorWash';
+        args = buildPrimitiveArgs(region, 'colorWash');
+        strokes = executePrimitive('colorWash', args);
+      } catch {
+        continue;
+      }
+    }
+
+    if (strokes && strokes.length > 0) {
+      allStrokes.push(...strokes);
+      usageCount.set(primName, (usageCount.get(primName) || 0) + 1);
+    }
+  }
+
+  // Add connector strokes if total points < 80K
+  const totalPoints = allStrokes.reduce((sum, s) => sum + s.points.length, 0);
+  if (totalPoints < 80000) {
+    allStrokes.push(...generateConnectors(sorted));
+  }
+
+  return allStrokes;
+}
+
+// ---------------------------------------------------------------------------
 // Paint — image-to-strokes rendering
 // ---------------------------------------------------------------------------
 
@@ -1344,7 +1579,7 @@ const MAX_IMAGE_BYTES = 50 * 1024 * 1024; // 50 MB
 
 async function cmdPaint(url, args) {
   if (!url || url.startsWith('--')) {
-    console.error('Usage: clawdraw paint <url> [--mode pointillist|sketch|vangogh|slimemold] [--width N] [--detail N] [--density N] [--cx N] [--cy N] [--dry-run]');
+    console.error('Usage: clawdraw paint <url> [--mode pointillist|sketch|vangogh|slimemold|freestyle] [--width N] [--detail N] [--density N] [--cx N] [--cy N] [--dry-run]');
     process.exit(1);
   }
 
@@ -1370,8 +1605,8 @@ async function cmdPaint(url, args) {
   }
 
   const mode = args.mode || 'vangogh';
-  if (!['pointillist', 'sketch', 'vangogh', 'slimemold'].includes(mode)) {
-    console.error('Error: --mode must be pointillist, sketch, vangogh, or slimemold.');
+  if (!['pointillist', 'sketch', 'vangogh', 'slimemold', 'freestyle'].includes(mode)) {
+    console.error('Error: --mode must be pointillist, sketch, vangogh, slimemold, or freestyle.');
     process.exit(1);
   }
 
@@ -1496,7 +1731,13 @@ async function cmdPaint(url, args) {
   };
 
   console.log(`Rendering ${mode}...`);
-  const strokes = traceImage(pixelData, { mode, density });
+  let strokes;
+  if (mode === 'freestyle') {
+    const regions = analyzeRegions(pixelData, { density });
+    strokes = renderFreestyle(regions, { density });
+  } else {
+    strokes = traceImage(pixelData, { mode, density });
+  }
 
   // Estimate INQ cost
   const totalPoints = strokes.reduce((sum, s) => sum + s.points.length, 0);
@@ -1583,6 +1824,10 @@ switch (command) {
     cmdScan(parseArgs(rest));
     break;
 
+  case 'look':
+    cmdLook(parseArgs(rest));
+    break;
+
   case 'find-space':
     cmdFindSpace(parseArgs(rest));
     break;
@@ -1659,6 +1904,7 @@ switch (command) {
     console.log('  list                           List available primitives');
     console.log('  info <name>                    Show primitive parameters');
     console.log('  scan [--cx N] [--cy N]         Scan nearby canvas strokes');
+    console.log('  look [--cx N] [--cy N] [--radius N]   Capture a canvas screenshot as PNG');
     console.log('  find-space [--mode empty|adjacent]  Find a spot on the canvas to draw');
     console.log('  nearby [--x N] [--y N] [--radius N]  Analyze strokes near a point');
     console.log('  link                           Generate link code for web account');
@@ -1667,7 +1913,7 @@ switch (command) {
     console.log('  chat --message "..."                       Send a chat message');
     console.log('  erase --ids <id1,id2,...>                   Erase strokes by ID (own strokes only)');
     console.log('  waypoint-delete --id <id>                  Delete a waypoint (own waypoints only)');
-    console.log('  paint <url> [--mode M] [--width N]         Paint an image onto the canvas');
+    console.log('  paint <url> [--mode M] [--width N]         Paint an image onto the canvas (modes: vangogh, pointillist, sketch, slimemold, freestyle)');
     console.log('  template <name> --at X,Y [--scale N]       Draw an SVG template shape');
     console.log('  template --list [--category <cat>]          List available templates');
     console.log('  marker drop --x N --y N --type TYPE        Drop a stigmergic marker');

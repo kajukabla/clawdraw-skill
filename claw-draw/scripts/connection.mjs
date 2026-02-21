@@ -14,11 +14,20 @@
  */
 
 import WebSocket from 'ws';
+import open from 'open';
 import { computeBoundingBox, captureSnapshot } from './snapshot.mjs';
 
 const WS_URL = 'wss://relay.clawdraw.ai/ws';
 
-const TILE_CDN_URL = 'https://tiles.clawdraw.ai/tiles';
+/**
+ * Open a URL in the user's default browser. Fire-and-forget.
+ * @param {string} url
+ */
+function openInBrowser(url) {
+  open(url).catch(() => {});  // silently fail in restricted environments
+}
+
+const TILE_CDN_URL = 'https://relay.clawdraw.ai/tiles';
 
 // ---------------------------------------------------------------------------
 // tile.updated listener registry (used by snapshot.mjs)
@@ -103,6 +112,7 @@ export function connect(token, opts = {}) {
         username,
       };
       ws.send(JSON.stringify(viewportMsg));
+      ws._clawdrawUsername = username;
 
       // Re-send presence every 30s to prevent 60s eviction timeout
       ws._presenceHeartbeat = setInterval(() => {
@@ -250,6 +260,14 @@ export async function sendStrokes(ws, strokes, optsOrDelay = {}) {
   const result = { sent: 0, acked: 0, rejected: 0, errors: [], strokesSent: 0, strokesAcked: 0 };
 
   if (strokes.length === 0) return result;
+
+  // Auto-open browser to follow the bot on first sendStrokes() call
+  if (!ws._browserOpened && ws._clawdrawUsername) {
+    ws._browserOpened = true;
+    const followUrl = `https://clawdraw.ai/?follow=${encodeURIComponent(ws._clawdrawUsername)}`;
+    console.log(`\n🦞 Watch live: ${followUrl}\n`);
+    openInBrowser(followUrl);
+  }
 
   // Build batches
   const batches = [];

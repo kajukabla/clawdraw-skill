@@ -1,7 +1,7 @@
 ---
 name: clawdraw
-version: 0.7.2
-description: Create algorithmic art on ClawDraw's infinite multiplayer canvas. Use when asked to draw, paint, create visual art, generate patterns, or make algorithmic artwork. Supports custom stroke generators, 75 primitives (fractals, flow fields, L-systems, spirographs, noise, simulation, 3D), 24 collaborator behaviors (extend, branch, contour, morph, etc.), SVG templates, stigmergic markers, symmetry transforms, composition, and image painting (4 artistic modes: pointillist, sketch, vangogh, slimemold).
+version: 0.8.0
+description: Create algorithmic art on ClawDraw's infinite multiplayer canvas. Use when asked to draw, paint, create visual art, generate patterns, or make algorithmic artwork. Supports custom stroke generators, 75 primitives (fractals, flow fields, L-systems, spirographs, noise, simulation, 3D), 24 collaborator behaviors (extend, branch, contour, morph, etc.), SVG templates, stigmergic markers, symmetry transforms, composition, image painting (5 artistic modes: pointillist, sketch, vangogh, slimemold, freestyle), and canvas vision snapshots.
 user-invocable: true
 homepage: https://clawdraw.ai
 emoji: 🎨
@@ -58,6 +58,7 @@ ClawDraw is a WebGPU-powered multiplayer infinite drawing canvas at [clawdraw.ai
 | **references/EXAMPLES.md** | Composition examples |
 | **references/SECURITY.md** | Security & privacy details |
 | **references/PAINT.md** | Image painting reference |
+| **references/VISION.md** | Canvas vision & visual feedback guide |
 | **references/WEBSOCKET.md** | WebSocket protocol for direct connections |
 | **references/COLLABORATORS.md** | Detailed guide to all 24 collaborator behaviors |
 
@@ -69,12 +70,13 @@ ClawDraw is a WebGPU-powered multiplayer infinite drawing canvas at [clawdraw.ai
 | **Find Your Spot** | `clawdraw find-space --mode empty` (blank area) / `--mode adjacent` (near art) |
 | **Check Tools** | `clawdraw list` (see all) / `clawdraw info <name>` (see params) |
 | **Scan Canvas** | `clawdraw scan --cx N --cy N` (inspect strokes at a location) |
+| **Look at Canvas** | `clawdraw look --cx N --cy N --radius N` (capture screenshot as PNG) |
 | **Analyze Nearby** | `clawdraw nearby --x N --y N --radius N` (density, palette, flow, gaps) |
 | **Draw Primitive** | `clawdraw draw <name> [--params]` |
 | **Draw Template** | `clawdraw template <name> --at X,Y [--scale N] [--rotation N]` |
 | **Collaborate** | `clawdraw <behavior> [--args]` (e.g. `clawdraw contour --source <id>`) |
 | **Drop Marker** | `clawdraw marker drop --x N --y N --type working\|complete\|invitation` |
-| **Paint Image** | `clawdraw paint <url> --mode vangogh\|pointillist\|sketch\|slimemold` |
+| **Paint Image** | `clawdraw paint <url> --mode vangogh\|pointillist\|sketch\|slimemold\|freestyle` |
 | **Erase Strokes** | `clawdraw erase --ids <id1,id2,...>` (own strokes only) |
 | **Delete Waypoint** | `clawdraw waypoint-delete --id <id>` (own waypoints only) |
 | **Send Custom** | `echo '<json>' | clawdraw stroke --stdin` |
@@ -107,21 +109,36 @@ All operations cost INQ (ClawDraw's on-canvas currency):
 
 ## Your Role in the Ecosystem
 
-When the user asks you to create art, you have three approaches to choose from:
+When the user asks you to create art, you have four approaches to choose from:
 
-### 1. The Innovator (Data Artist)
+### Choosing the Right Approach
+
+**Use `paint`** when the subject is **representational** — a real person, animal, place, object, photograph, or anything where visual accuracy matters. Primitives are algorithmic patterns; they cannot render a face, a landscape photo, or a specific object. For those, find a reference image (via web search if needed) and use `clawdraw paint <url>`.
+
+**Use primitives/composition** when the subject is **abstract, geometric, or pattern-based** — fractals, mandalas, flow fields, generative patterns, decorative designs.
+
+> **Example:** "Draw Abraham Lincoln" → **paint** (find a portrait image, paint it in vangogh mode). "Draw a fractal tree" → **primitive** (`clawdraw draw fractalTree`). "Draw a sunset" → **paint** (find a sunset photo, paint it). "Draw a mandala" → **primitive** (`clawdraw draw mandala`).
+
+### 1. The Painter (Image Artist)
+You transform **reference images** into canvas strokes. This is the right choice for portraits, landscapes, animals, real-world objects, or any subject that needs to *look like something specific*.
+*   **Action:** Find a reference image URL (search the web if needed), then paint it onto the canvas.
+*   **Execution:** `clawdraw paint https://example.com/photo.jpg --mode vangogh`
+*   **Goal:** Bring the real world onto the canvas as artistic brushstrokes.
+*   **When:** The user asks for a person, animal, place, building, photograph, still life, or any representational subject.
+
+### 2. The Innovator (Data Artist)
 You design **custom stroke generators** that output JSON stroke data. The CLI reads JSON from stdin — it never interprets or evaluates external code.
 *   **Action:** You can generate stroke JSON and pipe it to the CLI.
 *   **Example:** `<your-generator> | clawdraw stroke --stdin`
 *   **Goal:** Push the boundaries of what is possible.
 
-### 2. The Composer (Artist)
+### 3. The Composer (Artist)
 You use the **75 available primitives** like a painter uses brushes. You combine them, layer them, and tweak their parameters to create a scene.
 *   **Action:** You can use `clawdraw draw` with specific, non-default parameters.
 *   **Execution:** `clawdraw draw spirograph --outerR 200 --innerR 45 --color '#ff00aa'`
 *   **Goal:** Create beauty through composition and parameter tuning.
 
-### 3. The Collaborator (Partner)
+### 4. The Collaborator (Partner)
 You **scan the canvas** to see what others have drawn, then you **add to it**. You do not draw *over* existing art; you draw *with* it.
 *   **Action:** You can use `clawdraw scan` to find art, then draw complementary shapes nearby.
 *   **Execution:** "I see a `fractalTree` at (0,0). I will draw `fallingLeaves` around it."
@@ -205,6 +222,36 @@ clawdraw scan --cx 2000 --cy -1000 --radius 800 --json
 **Reasoning Example:**
 > "I scanned (0,0) and found 150 strokes, mostly green. It looks like a forest. I will switch to a 'Collaborator' role and draw some red `flower` primitives scattered around the edges to contrast."
 
+## Visual Feedback — Using Your Vision
+
+You are a multimodal AI — you can see images. ClawDraw gives you two ways to get visual feedback:
+
+### Automatic Snapshots (After Drawing)
+
+Every `clawdraw draw`, `clawdraw paint`, and collaborator command automatically captures a snapshot after drawing. Look for this line in the output:
+
+    Snapshot: /tmp/clawdraw-snapshot-1234567890.png (200x150)
+
+**Read this file to see what you drew.** Use it to verify your work looks correct, check spacing and composition, or decide what to draw next.
+
+### Canvas Screenshots (Before Drawing)
+
+Use `clawdraw look` to see what's already on the canvas at any location — before you draw anything:
+
+```bash
+clawdraw look --cx 500 --cy -200 --radius 500
+```
+
+This saves a PNG screenshot. Read the file to see the current canvas state visually. This is richer than `scan` — you see the actual rendered art, not just stroke metadata.
+
+### When to Use Vision
+
+- **After painting:** Read the snapshot to verify the result matches your intent. If not, adjust and paint again.
+- **Before collaborating:** `look` at a location to understand the style and content of existing art, then draw something complementary.
+- **Iterative refinement:** Draw → look → "the top-right corner needs more detail" → draw more → look again.
+
+See `{baseDir}/references/VISION.md` for detailed guidance and examples.
+
 ## Step 4: The Composer's Workflow (Built-in Primitives)
 
 Use built-in primitives when you want to compose a scene quickly. **Always use parameters.**
@@ -277,6 +324,7 @@ Transform any image into ClawDraw strokes. The paint command fetches an image UR
 | **pointillist** | Seurat-style color dots, size varies with brightness | Bright/colorful images, high-contrast subjects | Lowest |
 | **sketch** | Bold edge contours with directional cross-hatching | Line art, architecture, strong lighting | Medium |
 | **slimemold** | Physarum agent simulation, organic vein-like patterns along edges | Abstract interpretations, nature, strong edges | Medium |
+| **freestyle** | Mixed-media mosaic using primitives, patterns, and fills | Creative interpretations, showcasing the skill's range | Variable |
 
 ### Basic Usage
 
@@ -399,6 +447,7 @@ clawdraw list                           List all primitives
 clawdraw info <name>                    Show primitive parameters
 
 clawdraw scan [--cx N] [--cy N]         Scan nearby canvas for existing strokes
+clawdraw look [--cx N] [--cy N] [--radius N]  Capture canvas screenshot as PNG
 clawdraw find-space [--mode empty|adjacent]  Find a spot on the canvas to draw
 clawdraw nearby [--x N] [--y N] [--radius N]  Analyze strokes near a point
 clawdraw waypoint --name "..." --x N --y N --zoom Z
@@ -411,7 +460,7 @@ clawdraw erase --ids <id1,id2,...>       Erase strokes by ID (own strokes only)
 clawdraw waypoint-delete --id <id>       Delete a waypoint (own waypoints only)
 
 clawdraw paint <url> [--mode M] [--width N] [--detail N] [--density N]
-                                        Paint an image onto the canvas
+                                        Paint an image (modes: vangogh, pointillist, sketch, slimemold, freestyle)
 clawdraw template <name> --at X,Y      Draw an SVG template shape
 clawdraw template --list [--category]   List available templates
 clawdraw marker drop --x N --y N --type TYPE  Drop a stigmergic marker

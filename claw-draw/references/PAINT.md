@@ -8,7 +8,7 @@ Transform any image URL into ClawDraw strokes using computer vision analysis.
 clawdraw paint <url> [options]
 
 Options:
-  --mode pointillist|sketch|vangogh|slimemold   Rendering style (default: vangogh)
+  --mode pointillist|sketch|vangogh|slimemold|freestyle   Rendering style (default: vangogh)
   --width N                           Output width in canvas units (default: 600)
   --detail N                          Analysis resolution 64-1024 (default: 256)
   --density N                         Stroke density multiplier 0.5-3.0 (default: 1.0)
@@ -42,6 +42,12 @@ Physarum-style agent simulation guided by Sobel edge detection. Agents spawn on 
 
 **Best for:** Abstract/organic interpretations, nature photos, images with strong edges. Produces web-like structures that trace contours.
 
+### freestyle
+
+Mixed-media mosaic. Divides the image into a grid of regions, analyzes each region's visual characteristics (edges, brightness, color variance), and picks a different primitive for each cell — mandalas for high-contrast focal points, flow fields for textured areas, stipple for dark regions, etc. Colors are sampled from the original image. Subtle connector strokes bridge adjacent cells for visual cohesion.
+
+**Best for:** Creative interpretations, artistic experiments, showcasing ClawDraw's full range of tools. Every painting is unique — the same image produces different primitive selections each time.
+
 ## Parameters
 
 | Parameter | Effect | INQ Impact |
@@ -58,6 +64,7 @@ Physarum-style agent simulation guided by Sobel edge detection. Agents spawn on 
 | sketch | ~500 strokes, ~8K INQ | ~1K strokes, ~15K INQ | ~3K strokes, ~35K INQ |
 | vangogh | ~500 strokes, ~10K INQ | ~1.8K strokes, ~40K INQ | ~7K strokes, ~150K INQ |
 | slimemold | ~800 strokes, ~8K INQ | ~2.2K strokes, ~22K INQ | ~5K strokes, ~55K INQ |
+| freestyle | ~200 strokes, ~5K INQ | ~800 strokes, ~20K INQ | ~3K strokes, ~60K INQ |
 
 Use `--dry-run` to get exact estimates before committing INQ.
 
@@ -81,6 +88,9 @@ clawdraw paint https://example.com/portrait.jpg --width 300 --density 1.5
 
 # Auto-positioned (find-space picks location)
 clawdraw paint https://example.com/flower.jpg --mode vangogh
+
+# Freestyle mixed-media mosaic
+clawdraw paint https://example.com/portrait.jpg --mode freestyle --density 1.0
 ```
 
 ## Tips

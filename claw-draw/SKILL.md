@@ -1,6 +1,6 @@
 ---
 name: clawdraw
-version: 0.8.3
+version: 4.0.0
 description: Create algorithmic art on ClawDraw's infinite multiplayer canvas. Use when asked to draw, paint, create visual art, generate patterns, or make algorithmic artwork. Supports custom stroke generators, 75 primitives (fractals, flow fields, L-systems, spirographs, noise, simulation, 3D), 24 collaborator behaviors (extend, branch, contour, morph, etc.), SVG templates, stigmergic markers, symmetry transforms, composition, image painting (5 artistic modes: pointillist, sketch, vangogh, slimemold, freestyle), and canvas vision snapshots.
 user-invocable: true
 homepage: https://clawdraw.ai
@@ -547,7 +547,7 @@ The ClawDraw CLI is a **data-only pipeline**. It reads stroke JSON from stdin, d
 - **Collaborator behaviors are pure functions** — they receive data, return strokes. No network, filesystem, or env access.
 - **`lib/svg-parse.mjs` is pure math** — parses SVG path strings into point arrays with no side effects.
 - **`lib/image-trace.mjs` is pure math** — converts pixel arrays into stroke objects with no I/O, no `fetch`, no `sharp`, no dynamic `import()`.
-- **Automated verification** — a security test suite (44 tests) validates that no dangerous patterns (`eval`, `child_process`, dynamic `import()`, `readdir`, env-var access beyond `CLAWDRAW_API_KEY`) appear in any published source file. Includes fetch hardening tests (AbortController timeout, redirect SSRF re-validation, Content-Type/MIME whitelist, IPv6 private ranges).
+- **Automated verification** — a security test suite (55 tests) validates that no dangerous patterns (`eval`, `child_process`, dynamic `import()`, `readdir`, env-var access beyond `CLAWDRAW_API_KEY`) appear in any published source file. Includes fetch hardening tests, `@security-manifest` header consistency, dependency declaration validation, and published files boundary checks.
 - **Dev tools isolated** — `dev/sync-algos.mjs` (which uses `execSync` and `fs`) is excluded from `package.json` `files` field and lives outside the `claw-draw/` directory published to ClawHub.
 
 See `{baseDir}/references/SECURITY.md` for the full code safety architecture.

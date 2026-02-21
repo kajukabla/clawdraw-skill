@@ -76,7 +76,7 @@ describe('env-harvesting protection', () => {
   });
 
   it('no published script should use process.env for anything except CLAWDRAW_API_KEY', () => {
-    const scripts = ['auth.mjs', 'clawdraw.mjs', 'connection.mjs', 'symmetry.mjs', 'snapshot.mjs'];
+    const scripts = ['auth.mjs', 'clawdraw.mjs', 'connection.mjs', 'symmetry.mjs', 'snapshot.mjs', 'roam.mjs'];
     for (const name of scripts) {
       const src = readScript(name);
       // Find all process.env usages
@@ -103,7 +103,7 @@ describe('dangerous-exec protection', () => {
   });
 
   it('no script should use execSync', () => {
-    const scripts = ['auth.mjs', 'clawdraw.mjs', 'connection.mjs', 'symmetry.mjs', 'snapshot.mjs'];
+    const scripts = ['auth.mjs', 'clawdraw.mjs', 'connection.mjs', 'symmetry.mjs', 'snapshot.mjs', 'roam.mjs'];
     for (const name of scripts) {
       const src = readScript(name);
       expect(src).not.toContain('execSync');
@@ -389,6 +389,105 @@ describe('community/ safety', () => {
       expect(src, `${rel} contains import(`).not.toMatch(/import\s*\(/);
       expect(src, `${rel} contains require(`).not.toMatch(/require\s*\(/);
       expect(src, `${rel} contains readdir`).not.toMatch(/readdir/);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// @security-manifest header consistency
+// ---------------------------------------------------------------------------
+
+describe('@security-manifest headers', () => {
+  const publishedScripts = ['clawdraw.mjs', 'auth.mjs', 'connection.mjs', 'snapshot.mjs', 'symmetry.mjs', 'roam.mjs'];
+
+  it('all published scripts have @security-manifest header', () => {
+    for (const name of publishedScripts) {
+      const src = readScript(name);
+      expect(src, `${name} missing @security-manifest`).toContain('@security-manifest');
+    }
+  });
+
+  it('all manifests declare env:, endpoints:, files:, exec: fields', () => {
+    for (const name of publishedScripts) {
+      const src = readScript(name);
+      expect(src, `${name} missing env: field`).toMatch(/\/\/\s*env:/);
+      expect(src, `${name} missing endpoints: field`).toMatch(/\/\/\s*endpoints:/);
+      expect(src, `${name} missing files: field`).toMatch(/\/\/\s*files:/);
+      expect(src, `${name} missing exec: field`).toMatch(/\/\/\s*exec:/);
+    }
+  });
+
+  it('no manifest declares exec: anything other than none', () => {
+    for (const name of publishedScripts) {
+      const src = readScript(name);
+      const execLines = src.match(/\/\/\s*exec:.*/g) || [];
+      for (const line of execLines) {
+        expect(line, `${name} declares non-none exec`).toMatch(/exec:\s*none/);
+      }
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// open package isolation
+// ---------------------------------------------------------------------------
+
+describe('open package isolation', () => {
+  const publishedScripts = ['clawdraw.mjs', 'auth.mjs', 'connection.mjs', 'snapshot.mjs', 'symmetry.mjs', 'roam.mjs'];
+
+  it('open is statically imported in connection.mjs', () => {
+    const src = readScript('connection.mjs');
+    expect(src).toMatch(/^import\s+open\s+from\s+['"]open['"]/m);
+  });
+
+  it('open is not imported in any other published script', () => {
+    for (const name of publishedScripts) {
+      if (name === 'connection.mjs') continue;
+      const src = readScript(name);
+      expect(src, `${name} imports open`).not.toMatch(/import\s+open\s+from\s+['"]open['"]/);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Dependency declarations
+// ---------------------------------------------------------------------------
+
+describe('dependency declarations', () => {
+  const pkgJson = JSON.parse(fs.readFileSync(path.resolve(__dirname, '..', '..', 'package.json'), 'utf-8'));
+
+  it('sharp is in package.json dependencies', () => {
+    expect(pkgJson.dependencies).toHaveProperty('sharp');
+  });
+
+  it('ws is in package.json dependencies', () => {
+    expect(pkgJson.dependencies).toHaveProperty('ws');
+  });
+
+  it('open is in package.json dependencies', () => {
+    expect(pkgJson.dependencies).toHaveProperty('open');
+  });
+
+  it('no devDependencies exist', () => {
+    expect(pkgJson.devDependencies).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Published files boundary
+// ---------------------------------------------------------------------------
+
+describe('published files boundary', () => {
+  it('no dev/ directory inside claw-draw/', () => {
+    const devDir = path.resolve(__dirname, '..', '..', 'dev');
+    expect(fs.existsSync(devDir)).toBe(false);
+  });
+
+  it('package.json files array does not include test paths', () => {
+    const pkgJson = JSON.parse(fs.readFileSync(path.resolve(__dirname, '..', '..', 'package.json'), 'utf-8'));
+    const files = pkgJson.files || [];
+    for (const entry of files) {
+      expect(entry, `files array includes test path: ${entry}`).not.toMatch(/__tests__|\.test\./);
     }
   });
 });

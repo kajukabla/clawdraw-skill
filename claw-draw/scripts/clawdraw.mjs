@@ -3,6 +3,7 @@
  * ClawDraw CLI — OpenClaw skill entry point.
  *
  * Usage:
+ *   clawdraw setup [name]               Create agent + save API key (first-time setup)
  *   clawdraw create <name>              Create agent, get API key
  *   clawdraw auth                       Exchange API key for JWT (cached)
  *   clawdraw status                     Show connection info + INQ balance
@@ -37,10 +38,16 @@
  *   clawdraw <behavior> [--args]         Run a collaborator behavior (extend, branch, contour, etc.)
  */
 
+// @security-manifest
+// env: CLAWDRAW_API_KEY
+// endpoints: api.clawdraw.ai (HTTPS), relay.clawdraw.ai (WSS)
+// files: ~/.clawdraw/token.json, ~/.clawdraw/state.json, ~/.clawdraw/apikey.json
+// exec: none
+
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { getToken, createAgent, getAgentInfo } from './auth.mjs';
+import { getToken, createAgent, getAgentInfo, writeApiKey } from './auth.mjs';
 import { connect, drawAndTrack, addWaypoint, getWaypointUrl, deleteStroke, deleteWaypoint, disconnect } from './connection.mjs';
 import { parseSymmetryMode, applySymmetry } from './symmetry.mjs';
 import { getPrimitive, listPrimitives, getPrimitiveInfo, executePrimitive } from '../primitives/index.mjs';
@@ -141,23 +148,6 @@ function parseArgs(argv) {
   return args;
 }
 
-/**
- * Auto-find an empty canvas spot via the relay API.
- * Returns { x, y } or null on failure.
- */
-async function autoFindSpace(token) {
-  try {
-    const res = await fetch(`${RELAY_HTTP_URL}/api/find-space?mode=empty`, {
-      headers: { 'Authorization': `Bearer ${token}` },
-    });
-    if (res.ok) {
-      const space = await res.json();
-      return { x: space.canvasX, y: space.canvasY };
-    }
-  } catch { /* fall through */ }
-  return null;
-}
-
 function readStdin() {
   return new Promise((resolve, reject) => {
     const chunks = [];
@@ -202,6 +192,79 @@ async function cmdCreate(name) {
     console.log('');
     console.log('Set it as an environment variable:');
     console.log(`  export CLAWDRAW_API_KEY="${result.apiKey}"`);
+  } catch (err) {
+    console.error('Error:', err.message);
+    process.exit(1);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Setup — first-time onboarding for npm users
+// ---------------------------------------------------------------------------
+
+const SETUP_ADJECTIVES = [
+  'bold', 'swift', 'quiet', 'wild', 'deep', 'warm', 'cool', 'bright',
+  'soft', 'sharp', 'calm', 'keen', 'pale', 'dark', 'pure', 'raw',
+];
+const SETUP_NOUNS = [
+  'bloom', 'wave', 'spark', 'drift', 'glow', 'flow', 'pulse', 'ripple',
+  'frost', 'ember', 'breeze', 'shade', 'stone', 'root', 'mist', 'tide',
+];
+
+async function cmdSetup(providedName) {
+  // Check if already set up via env var
+  const existingKey = process.env.CLAWDRAW_API_KEY;
+  if (existingKey) {
+    console.log('CLAWDRAW_API_KEY is already set in your environment.');
+    console.log('Run `clawdraw status` to check your agent info.');
+    process.exit(0);
+  }
+
+  // Check for existing saved key
+  try {
+    const token = await getToken();  // will find file-based key if it exists
+    console.log('Already set up! API key found in ~/.clawdraw/');
+    console.log('Run `clawdraw status` to check your agent info.');
+    process.exit(0);
+  } catch {
+    // No key found — proceed with setup
+  }
+
+  // Generate or validate name
+  let name = providedName;
+  if (!name) {
+    const adj = SETUP_ADJECTIVES[Math.floor(Math.random() * SETUP_ADJECTIVES.length)];
+    const noun = SETUP_NOUNS[Math.floor(Math.random() * SETUP_NOUNS.length)];
+    name = `${adj}_${noun}`;
+  }
+
+  // Validate name format (server requires 1-32 alphanumeric/underscore)
+  if (!/^[a-zA-Z0-9_]{1,32}$/.test(name)) {
+    console.error('Error: Name must be 1-32 characters, alphanumeric and underscores only.');
+    console.error(`  Got: "${name}"`);
+    console.error('  Examples: my_artist, claude_bot, agent_42');
+    process.exit(1);
+  }
+
+  console.log(`Creating agent "${name}"...`);
+
+  try {
+    const result = await createAgent(name);
+    // Save API key to file
+    writeApiKey(result.apiKey, result.agentId, result.name);
+    console.log('');
+    console.log('Agent created and configured!');
+    console.log('');
+    console.log(`  Name:     ${result.name}`);
+    console.log(`  Agent ID: ${result.agentId}`);
+    console.log(`  API Key:  saved to ~/.clawdraw/apikey.json`);
+
+    // Auto-authenticate
+    const token = await getToken(result.apiKey);
+    const info = await getAgentInfo(token);
+    console.log(`  INQ:      ${info.inqBalance !== undefined ? info.inqBalance : 'unknown'}`);
+    console.log('');
+    console.log('Ready to draw! Try: clawdraw find-space --mode empty');
   } catch (err) {
     console.error('Error:', err.message);
     process.exit(1);
@@ -346,16 +409,7 @@ async function cmdDraw(primitiveName, args) {
     process.exit(1);
   }
 
-  // Auto-find an empty spot if no position specified
   const token = await getToken(CLAWDRAW_API_KEY);
-  if (args.cx === undefined && args.cy === undefined) {
-    const spot = await autoFindSpace(token);
-    if (spot) {
-      args.cx = spot.x;
-      args.cy = spot.y;
-      console.log(`Auto-placed at (${spot.x}, ${spot.y})`);
-    }
-  }
 
   let strokes;
   try {
@@ -751,6 +805,11 @@ async function cmdLink(code) {
       const err = await res.json().catch(() => ({}));
       if (res.status === 404) {
         throw new Error('Invalid or expired link code. Get a new code at https://clawdraw.ai/?openclaw');
+      }
+      if (res.status === 409) {
+        throw new Error(err.message === 'This agent is already linked to a Google account'
+          ? 'This agent is already linked to a Google account. Each agent can only link once.'
+          : 'This Google account is already linked to another agent. Each Google account can only link to one agent.');
       }
       throw new Error(err.message || `HTTP ${res.status}`);
     }
@@ -1192,18 +1251,13 @@ async function cmdTemplate(args) {
     process.exit(1);
   }
 
-  // Auto-find an empty spot if no --at specified
+  // atX/atY for stroke generation (default 0); cx/cy for drawAndTrack (undefined = auto-place)
   let atX = 0, atY = 0;
+  let cx, cy;
   if (args.at) {
     [atX, atY] = args.at.split(',').map(Number);
-  } else {
-    const token = await getToken(CLAWDRAW_API_KEY);
-    const spot = await autoFindSpace(token);
-    if (spot) {
-      atX = spot.x;
-      atY = spot.y;
-      console.log(`Auto-placed at (${atX}, ${atY})`);
-    }
+    cx = atX;
+    cy = atY;
   }
 
   // Parse options
@@ -1249,7 +1303,7 @@ async function cmdTemplate(args) {
   try {
     const token = await getToken(CLAWDRAW_API_KEY);
     const ws = await connect(token);
-    const result = await drawAndTrack(ws, strokes, { cx: atX, cy: atY, name: name });
+    const result = await drawAndTrack(ws, strokes, { cx, cy, name: name });
     console.log(`Drew template "${name}": ${result.strokesAcked}/${result.strokesSent} stroke(s) accepted.`);
     if (result.rejected > 0) {
       console.log(`  ${result.rejected} batch(es) rejected: ${result.errors.join(', ')}`);
@@ -1741,17 +1795,9 @@ async function cmdPaint(url, args) {
   // Authenticate (needed for find-space and drawing)
   const token = await getToken(CLAWDRAW_API_KEY);
 
-  // Auto-position if not specified
-  if (cx === null || cy === null) {
-    const spot = await autoFindSpace(token);
-    if (spot) {
-      cx = spot.x;
-      cy = spot.y;
-      console.log(`Auto-placed at (${cx}, ${cy})`);
-    }
-    if (cx === null) cx = 0;
-    if (cy === null) cy = 0;
-  }
+  // Convert null → undefined so drawAndTrack handles auto-placement
+  if (cx === null) cx = undefined;
+  if (cy === null) cy = undefined;
 
   // Build pixel data and render strokes
   const pixelData = {
@@ -1924,6 +1970,10 @@ switch (command) {
     cmdRoam(parseArgs(rest));
     break;
 
+  case 'setup':
+    cmdSetup(rest[0]);
+    break;
+
   default:
     // Check if command is a collaborator behavior name
     if (command && COLLABORATOR_NAMES.has(command)) {
@@ -1934,6 +1984,7 @@ switch (command) {
     console.log('ClawDraw — Algorithmic art on an infinite canvas');
     console.log('');
     console.log('Commands:');
+    console.log('  setup [name]                   Create agent + save API key (first-time setup)');
     console.log('  create <name>                  Create agent, get API key');
     console.log('  auth                           Authenticate (exchange API key for JWT)');
     console.log('  status                         Show agent info + INQ balance');

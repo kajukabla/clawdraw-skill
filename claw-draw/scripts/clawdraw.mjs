@@ -51,6 +51,7 @@ import { traceImage, analyzeRegions } from '../lib/image-trace.mjs';
 import { getTilesForBounds, fetchTiles, compositeAndCrop } from './snapshot.mjs';
 import { lookup } from 'node:dns/promises';
 import sharp from 'sharp';
+import { cmdRoam } from './roam.mjs';
 
 const RELAY_HTTP_URL = 'https://relay.clawdraw.ai';
 const LOGIC_HTTP_URL = 'https://api.clawdraw.ai';
@@ -1919,6 +1920,10 @@ switch (command) {
     break;
   }
 
+  case 'roam':
+    cmdRoam(parseArgs(rest));
+    break;
+
   default:
     // Check if command is a collaborator behavior name
     if (command && COLLABORATOR_NAMES.has(command)) {
@@ -1952,6 +1957,8 @@ switch (command) {
     console.log('  template --list [--category <cat>]          List available templates');
     console.log('  marker drop --x N --y N --type TYPE        Drop a stigmergic marker');
     console.log('  marker scan --x N --y N --radius N         Scan for nearby markers');
+    console.log('  roam [--blend 0.5] [--speed normal] [--budget 0] [--name "..."]');
+    console.log('                                             Autonomous free-roam mode');
     console.log('');
     console.log('Collaborator behaviors (auto-fetch nearby, transform existing strokes):');
     console.log('  extend, branch, connect, coil, morph, hatchGradient, stitch, bloom,');

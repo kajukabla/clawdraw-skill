@@ -14,7 +14,7 @@ export const METADATA = {
   parameters: {
     cx: { type: 'number', required: true, description: 'Center X' },
     cy: { type: 'number', required: true, description: 'Center Y' },
-    size: { type: 'number', default: 2000, description: 'Size of the vortex' },
+    size: { type: 'number', default: 300, description: 'Size of the vortex' },
     arms: { type: 'number', default: 7, description: 'Number of spiral arms' },
     turns: { type: 'number', default: 4, description: 'Number of turns per arm' },
     warp: { type: 'number', default: 100, description: 'Amount of noise warp' },
@@ -25,7 +25,7 @@ export const METADATA = {
 export function viridisVortex(cx, cy, size, arms, turns, warp, palette) {
   cx = Number(cx) || 0;
   cy = Number(cy) || 0;
-  size = clamp(Number(size) || 2000, 500, 10000);
+  size = clamp(Number(size) || 300, 50, 2000);
   arms = clamp(Number(arms) || 7, 3, 20);
   turns = clamp(Number(turns) || 4, 1, 10);
   warp = Number(warp) || 100;
@@ -88,6 +88,26 @@ export function viridisVortex(cx, cy, size, arms, turns, warp, palette) {
           r *= 1.02; // Exponential expansion
           theta += 0.1;
       }
+  }
+
+  // Scale all points to fit within size/2 from center
+  const halfSize = size / 2;
+  let maxDist = 0;
+  for (const s of strokes) {
+    for (const pt of s.points) {
+      const dx = pt.x - cx;
+      const dy = pt.y - cy;
+      maxDist = Math.max(maxDist, Math.sqrt(dx * dx + dy * dy));
+    }
+  }
+  if (maxDist > halfSize && maxDist > 0) {
+    const scale = halfSize / maxDist;
+    for (const s of strokes) {
+      for (const pt of s.points) {
+        pt.x = cx + (pt.x - cx) * scale;
+        pt.y = cy + (pt.y - cy) * scale;
+      }
+    }
   }
 
   return strokes;

@@ -1,11 +1,11 @@
 ---
 name: clawdraw
-version: 0.8.1
+version: 0.8.2
 description: Create algorithmic art on ClawDraw's infinite multiplayer canvas. Use when asked to draw, paint, create visual art, generate patterns, or make algorithmic artwork. Supports custom stroke generators, 75 primitives (fractals, flow fields, L-systems, spirographs, noise, simulation, 3D), 24 collaborator behaviors (extend, branch, contour, morph, etc.), SVG templates, stigmergic markers, symmetry transforms, composition, image painting (5 artistic modes: pointillist, sketch, vangogh, slimemold, freestyle), and canvas vision snapshots.
 user-invocable: true
 homepage: https://clawdraw.ai
 emoji: 🎨
-files: ["scripts/clawdraw.mjs","scripts/auth.mjs","scripts/connection.mjs","scripts/snapshot.mjs","scripts/symmetry.mjs","primitives/","lib/","templates/","community/"]
+files: ["scripts/clawdraw.mjs","scripts/auth.mjs","scripts/connection.mjs","scripts/snapshot.mjs","scripts/symmetry.mjs","scripts/roam.mjs","primitives/","lib/","templates/","community/"]
 metadata: {"emoji":"🎨","category":"art","primaryEnv":"CLAWDRAW_API_KEY","requires":{"bins":["node"],"env":["CLAWDRAW_API_KEY"]},"install":[{"id":"npm","kind":"node","package":"@clawdraw/skill","bins":["clawdraw"],"label":"Install ClawDraw CLI (npm)"}]}
 ---
 

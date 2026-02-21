@@ -13,11 +13,17 @@
  *   disconnect(ws);
  */
 
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import WebSocket from 'ws';
 import open from 'open';
 import { computeBoundingBox, captureSnapshot } from './snapshot.mjs';
 
 const WS_URL = 'wss://relay.clawdraw.ai/ws';
+
+const FOLLOW_TAB_FLAG = path.join(os.tmpdir(), 'clawdraw-follow-tab');
+const FOLLOW_TAB_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 /**
  * Open a URL in the user's default browser. Fire-and-forget.
@@ -101,7 +107,7 @@ export function connect(token, opts = {}) {
 
     ws.on('open', () => {
       // Send initial viewport so the relay knows where we are
-      const viewportMsg = {
+      ws._currentViewport = {
         type: 'viewport.update',
         viewport: {
           center,
@@ -111,13 +117,13 @@ export function connect(token, opts = {}) {
         cursor: center,
         username,
       };
-      ws.send(JSON.stringify(viewportMsg));
+      ws.send(JSON.stringify(ws._currentViewport));
       ws._clawdrawUsername = username;
 
       // Re-send presence every 30s to prevent 60s eviction timeout
       ws._presenceHeartbeat = setInterval(() => {
         if (ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify(viewportMsg));
+          ws.send(JSON.stringify(ws._currentViewport));
         }
       }, 30000);
 
@@ -264,9 +270,17 @@ export async function sendStrokes(ws, strokes, optsOrDelay = {}) {
   // Auto-open browser to follow the bot on first sendStrokes() call
   if (!ws._browserOpened && ws._clawdrawUsername) {
     ws._browserOpened = true;
+    let shouldOpen = true;
+    try {
+      const stat = fs.statSync(FOLLOW_TAB_FLAG);
+      if (Date.now() - stat.mtimeMs < FOLLOW_TAB_TTL_MS) shouldOpen = false;
+    } catch { /* file doesn't exist */ }
     const followUrl = `https://clawdraw.ai/?follow=${encodeURIComponent(ws._clawdrawUsername)}`;
     console.log(`\n🦞 Watch live: ${followUrl}\n`);
-    openInBrowser(followUrl);
+    if (shouldOpen) {
+      fs.writeFileSync(FOLLOW_TAB_FLAG, String(Date.now()));
+      openInBrowser(followUrl);
+    }
   }
 
   // Build batches
@@ -504,8 +518,15 @@ export async function drawAndTrack(ws, strokes, { cx, cy, zoom = 0.3, name, desc
     if (cy === undefined) cy = Math.round((bbox.minY + bbox.maxY) / 2);
   }
 
-  // Follow link BEFORE sending
-  console.log(`Follow along: https://clawdraw.ai/?x=${cx}&y=${cy}&z=${zoom}`);
+  // Update viewport/cursor to drawing center so Follow can find us
+  const drawViewport = {
+    type: 'viewport.update',
+    viewport: { center: { x: cx, y: cy }, zoom, size: { width: 6000, height: 6000 } },
+    cursor: { x: cx, y: cy },
+    username: ws._clawdrawUsername,
+  };
+  ws._currentViewport = drawViewport;
+  ws.send(JSON.stringify(drawViewport));
 
   // Send strokes
   const result = await sendStrokes(ws, strokes);

@@ -3,7 +3,7 @@
  * WebSocket connection manager for sending strokes to the ClawDraw relay.
  *
  * Usage:
- *   import { connect, sendStrokes, addWaypoint, getWaypointUrl, disconnect } from './connection.mjs';
+ *   import { connect, sendStrokes, addWaypoint, getWaypointUrl, deleteStroke, deleteWaypoint, disconnect } from './connection.mjs';
  *
  *   const ws = await connect(token);
  *   const result = await sendStrokes(ws, strokes);
@@ -373,6 +373,80 @@ export function addWaypoint(ws, { name, x, y, zoom, description }) {
       type: 'waypoint.add',
       waypoint: { name, x, y, zoom, description: description || undefined },
     }));
+  });
+}
+
+/**
+ * Delete a stroke by ID (own strokes only).
+ *
+ * @param {WebSocket} ws - Connected WebSocket
+ * @param {string} strokeId - ID of the stroke to delete
+ * @returns {Promise<{ deleted: true }>}
+ */
+export function deleteStroke(ws, strokeId) {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      ws.removeListener('message', handler);
+      reject(new Error('Stroke delete response timeout (5s)'));
+    }, 5000);
+
+    function handler(data) {
+      try {
+        const parsed = JSON.parse(data.toString());
+        const msgs = Array.isArray(parsed) ? parsed : [parsed];
+        for (const msg of msgs) {
+          if (msg.type === 'stroke.deleted' && msg.strokeId === strokeId) {
+            clearTimeout(timeout);
+            ws.removeListener('message', handler);
+            resolve({ deleted: true });
+          } else if (msg.type === 'sync.error') {
+            clearTimeout(timeout);
+            ws.removeListener('message', handler);
+            reject(new Error(msg.message || msg.code));
+          }
+        }
+      } catch { /* ignore */ }
+    }
+
+    ws.on('message', handler);
+    ws.send(JSON.stringify({ type: 'stroke.delete', strokeId }));
+  });
+}
+
+/**
+ * Delete a waypoint by ID (own waypoints only).
+ *
+ * @param {WebSocket} ws - Connected WebSocket
+ * @param {string} waypointId - ID of the waypoint to delete
+ * @returns {Promise<{ deleted: true }>}
+ */
+export function deleteWaypoint(ws, waypointId) {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      ws.removeListener('message', handler);
+      reject(new Error('Waypoint delete response timeout (5s)'));
+    }, 5000);
+
+    function handler(data) {
+      try {
+        const parsed = JSON.parse(data.toString());
+        const msgs = Array.isArray(parsed) ? parsed : [parsed];
+        for (const msg of msgs) {
+          if (msg.type === 'waypoint.deleted' && msg.waypointId === waypointId) {
+            clearTimeout(timeout);
+            ws.removeListener('message', handler);
+            resolve({ deleted: true });
+          } else if (msg.type === 'sync.error') {
+            clearTimeout(timeout);
+            ws.removeListener('message', handler);
+            reject(new Error(msg.message || msg.code));
+          }
+        }
+      } catch { /* ignore */ }
+    }
+
+    ws.on('message', handler);
+    ws.send(JSON.stringify({ type: 'waypoint.delete', waypointId }));
   });
 }
 

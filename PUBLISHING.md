@@ -22,7 +22,7 @@ Before bumping a version, verify the skill is in sync with the main ClawDraw app
 
 Run the full security checklist before every publish. This directly determines whether the package passes the OpenClaw/VirusTotal scan.
 
-### Automated tests (59 tests)
+### Automated tests (72 tests)
 
 ```bash
 cd claw-draw && npx vitest run
@@ -102,8 +102,50 @@ The v0.6.0 scan classified the bundle as **benign** but raised informational war
 
 1. **`dev/sync-algos.mjs` in ClawHub bundle** — contained `execSync`, `child_process`, `readdir`. Was excluded from npm via `files` allowlist, but `clawhub publish` uploads the entire directory. **Fix (v0.6.1):** moved `dev/` to repo root, outside `claw-draw/`.
 2. **Test files in ClawHub bundle** — `scripts/__tests__/security.test.ts` and `scripts/connection.test.ts` appeared in the bundle. **Fix (v0.6.1):** added `.clawhubignore` to exclude test files.
-3. **Registry metadata mismatch** — `requires` and `install` were nested under `clawdbot` in the metadata JSON. ClawHub's parser expects them under the `openclaw` namespace (`metadata.openclaw.requires`). **Fix (v0.6.1):** hoisted `requires` and `install` to root of metadata object — but this was still wrong (needed `metadata.openclaw`). **Fix (v0.6.3):** moved all registry metadata under `metadata.openclaw` namespace.
+3. **Registry metadata mismatch** — `requires` and `install` were nested under `clawdbot` in the metadata JSON. ClawHub's parser expects them under the `openclaw` namespace (`metadata.openclaw.requires`). **Fix (v0.6.1):** hoisted `requires` and `install` to root of metadata object — but this was still wrong (needed `metadata.openclaw`). **Fix (v0.6.3):** moved all registry metadata under `metadata.openclaw` namespace. (Later switched to `clawdbot` in v0.7.0 — see current rules above.)
 4. **`package-lock.json` in bundle** — unnecessary file. **Fix (v0.6.1):** added to `.clawhubignore`.
+
+### v0.7.0 Security Scan Result
+
+The OpenClaw security scanner and VirusTotal classified the skill as **Suspicious (High Confidence)**. Two categories of issues:
+
+#### Issue 1: Metadata namespace mismatch
+
+The v0.7.0 release renamed the metadata namespace from `openclaw` to `clawdbot`. The scanner continued reading from `openclaw`, causing it to report:
+- "Required env vars: none" (actual: `CLAWDRAW_API_KEY`)
+- "No install spec (instruction-only)" (actual: npm package with CLI binary)
+
+This made the skill appear to hide its env-var requirement and install mechanism, triggering the suspicion flag.
+
+**Fix (v0.7.1):** Provide metadata under both `clawdbot` and `openclaw` namespaces in SKILL.md frontmatter. Both contain identical `requires`, `install`, and `primaryEnv` declarations.
+
+**Lesson:** Never remove the `openclaw` namespace from metadata — the scanner reads it. When changing namespace conventions, provide both namespaces during the transition period.
+
+#### Issue 2: Image processing attack surface (`cmdPaint`)
+
+The `cmdPaint` command fetches untrusted external URLs and processes them with `sharp` (libvips native addon). The scanner flagged:
+- Native `.node` binaries from sharp/libvips (VirusTotal flags any compiled native addon)
+- Processing untrusted image URLs creates SSRF and memory-corruption risk
+
+Existing protections (SSRF via DNS lookup, 50MB size limit, parameter clamping) were acknowledged but the scanner identified gaps:
+- No fetch timeout (slow-server DoS)
+- No redirect SSRF protection (redirect to private IP bypasses DNS check)
+- No Content-Type validation (non-image responses processed by sharp)
+- No image format whitelist (all libvips decoders exposed)
+
+**Fix (v0.7.1):**
+- 30s fetch timeout via AbortController
+- Manual redirect handling with re-validation against SSRF rules
+- Content-Type must be `image/*`
+- Format whitelist: JPEG, PNG, WebP, GIF, TIFF, AVIF only
+- Extended IPv6 private range coverage (fe80:, fc00:, fd)
+- 8 new security tests verifying all hardening patterns
+
+**Lesson:** When processing untrusted URLs, `redirect: 'manual'` is essential — Node's default `fetch` follows redirects silently, bypassing any pre-fetch DNS/IP validation. Always re-validate the redirect target.
+
+#### Bundled UX fix: INQ recovery flow
+
+Not a scanner issue, but bundled into v0.7.1: all 6 `INSUFFICIENT_INQ` exit points now call `printInqRecovery()`, which always shows the `?openclaw` deep link (linking bonus) before suggesting `clawdraw buy`. SKILL.md agent instructions updated to enforce link-first-then-buy flow and never use bare `clawdraw.ai` URLs.
 
 ---
 
@@ -128,7 +170,7 @@ cd claw-draw && npm pack --dry-run
 
 Verify:
 - **Version** matches what you bumped to
-- **File count** is expected (currently 88 files)
+- **File count** is expected (currently 89 files)
 - **No test files** — `__tests__/`, `*.test.ts`, `vitest.config.*` should not appear
 - **No dev files** — `dev/`, `sync-algos.mjs` should not appear
 - **No dotfiles** — `.env`, `.gitignore` (`.gitignore` is fine, npm includes it automatically but it's harmless)
@@ -330,13 +372,13 @@ git push
 ```yaml
 ---
 name: clawdraw
-version: 0.6.4
+version: 0.7.1
 description: One-line description (used by OpenClaw for skill matching)
 user-invocable: true
 homepage: https://clawdraw.ai
 emoji: 🎨
 files: ["scripts/clawdraw.mjs","scripts/auth.mjs","scripts/connection.mjs","scripts/snapshot.mjs","scripts/symmetry.mjs","primitives/","lib/","templates/","community/"]
-metadata: {"openclaw":{"emoji":"🎨","category":"art","primaryEnv":"CLAWDRAW_API_KEY","requires":{"bins":["node"],"env":["CLAWDRAW_API_KEY"]},"install":[{"id":"npm","kind":"node","package":"@clawdraw/skill","bins":["clawdraw"],"label":"Install ClawDraw CLI (npm)"}]}}
+metadata: {"clawdbot":{"emoji":"🎨","category":"art","primaryEnv":"CLAWDRAW_API_KEY","requires":{"bins":["node"],"env":["CLAWDRAW_API_KEY"]},"install":[{"id":"npm","kind":"node","package":"@clawdraw/skill","bins":["clawdraw"],"label":"Install ClawDraw CLI (npm)"}]},"openclaw":{"emoji":"🎨","category":"art","primaryEnv":"CLAWDRAW_API_KEY","requires":{"bins":["node"],"env":["CLAWDRAW_API_KEY"]},"install":[{"id":"npm","kind":"node","package":"@clawdraw/skill","bins":["clawdraw"],"label":"Install ClawDraw CLI (npm)"}]}}
 ---
 ```
 
@@ -345,7 +387,7 @@ Key fields:
 - `version` — must match `package.json` version
 - `description` — single line, OpenClaw parser only supports single-line frontmatter
 - `files` — JSON array of script/code files and directories the skill bundles. **Required** for any skill that includes executable scripts. Without this key, ClawHub classifies the skill as "instruction-only" (just a SKILL.md with instructions, no scripts) and skips parsing `requires`/`install` from metadata entirely. List individual script files and directories that contain code.
-- `metadata` — single-line JSON object; all registry-facing metadata lives under `metadata.openclaw`. The `openclaw.requires.env` array declares which env vars the skill needs (the scanner checks that you don't access anything else). The `openclaw.install` array declares install methods shown in the ClawHub UI.
+- `metadata` — single-line JSON object; registry-facing metadata lives under both `metadata.clawdbot` and `metadata.openclaw` (dual namespace for scanner compatibility). The `requires.env` array declares which env vars the skill needs (the scanner checks that you don't access anything else). The `install` array declares install methods shown in the ClawHub UI.
 - `user-invocable: true` — skill can be called directly by users (not just by other skills)
 
 ---
@@ -391,7 +433,7 @@ This separation is important — if `dev/` leaked into either published bundle, 
 1. **Dev tools** (`sync-algos.mjs`, anything with `execSync`/`child_process`/`readdir`) must live **outside** `claw-draw/` entirely (e.g., repo root `dev/`)
 2. **Test files** (`*.test.ts`, `__tests__/`) should be excluded via `.clawhubignore`
 3. **Build artifacts** (`node_modules/`, `package-lock.json`, `*.tgz`) should be in `.clawhubignore`
-4. **Metadata** — `requires` and `install` in SKILL.md frontmatter JSON must be under the **`openclaw` namespace** (`metadata.openclaw.requires`, `metadata.openclaw.install`). ClawHub's registry parser and the OpenClaw security scanner read from `metadata.openclaw`, not from root-level keys or other namespaces like `clawdbot`.
+4. **Metadata** — `requires` and `install` in SKILL.md frontmatter JSON must be under both the **`clawdbot`** and **`openclaw`** namespaces. ClawHub reads from `metadata.clawdbot`, the OpenClaw security scanner reads from `metadata.openclaw`. Provide identical data under both to satisfy both parsers.
 5. **Files declaration** — SKILL.md frontmatter must include a `files` key listing executable scripts and code directories. Without it, ClawHub classifies the skill as "instruction-only" and skips parsing `requires`/`install` from metadata entirely — even if the metadata is correct.
 
 ---
@@ -400,6 +442,9 @@ This separation is important — if `dev/` leaked into either published bundle, 
 
 | Version | Date | Highlights |
 |---------|------|-----------|
+| 0.7.1 | 2026-02-20 | Fetch hardening (redirect SSRF, timeout, Content-Type, format whitelist), dual metadata namespace, IPv6 SSRF coverage, INQ recovery flow with `?openclaw` deep link |
+| 0.7.0 | 2026-02-20 | Erase strokes, delete waypoints, metadata namespace fix (openclaw → clawdbot) |
+| 0.6.5 | 2026-02-20 | drawAndTrack refactor, ?openclaw deep link, recovery guidance |
 | 0.6.4 | 2026-02-20 | Add `files` frontmatter key to fix "instruction-only" registry classification; without `files`, ClawHub skips parsing `requires`/`install` from metadata |
 | 0.6.3 | 2026-02-20 | Fix scanner metadata: use `openclaw` namespace for `requires`/`install` (was root-level, scanner expects `metadata.openclaw`). Still flagged — registry classifies as instruction-only due to missing `files` key |
 | 0.6.2 | 2026-02-20 | Paint SSRF protection, static sharp import, response size limits |

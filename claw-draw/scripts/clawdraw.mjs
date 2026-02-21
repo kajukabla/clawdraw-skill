@@ -27,6 +27,8 @@
  *                                        Draw an SVG template shape
  *   clawdraw template --list [--category <cat>]  List available templates
  *   clawdraw template --info <name>     Show template details
+ *   clawdraw erase --ids <id1,id2,...>    Erase strokes by ID (own strokes only)
+ *   clawdraw waypoint-delete --id <id>  Delete a waypoint (own waypoints only)
  *   clawdraw marker drop --x N --y N --type TYPE [--message "..."] [--decay N]
  *                                        Drop a stigmergic marker
  *   clawdraw marker scan --x N --y N --radius N [--type TYPE] [--json]
@@ -38,7 +40,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { getToken, createAgent, getAgentInfo } from './auth.mjs';
-import { connect, drawAndTrack, addWaypoint, getWaypointUrl, disconnect } from './connection.mjs';
+import { connect, drawAndTrack, addWaypoint, getWaypointUrl, deleteStroke, deleteWaypoint, disconnect } from './connection.mjs';
 import { parseSymmetryMode, applySymmetry } from './symmetry.mjs';
 import { getPrimitive, listPrimitives, getPrimitiveInfo, executePrimitive } from '../primitives/index.mjs';
 import { setNearbyCache } from '../primitives/collaborator.mjs';
@@ -221,6 +223,16 @@ async function cmdStatus() {
   }
 }
 
+function printInqRecovery() {
+  console.error('');
+  console.error('Insufficient INQ. To get more:');
+  console.error('');
+  console.error('  1. Link account:  Open https://clawdraw.ai/?openclaw');
+  console.error('                    Sign in with Google → copy the 6-char code → clawdraw link <CODE>');
+  console.error('                    Linking grants a one-time 150,000 INQ bonus + 550K daily shared pool.');
+  console.error('  2. Buy INQ:       Once linked, run: clawdraw buy');
+}
+
 async function cmdStroke(args) {
   let strokes;
 
@@ -287,6 +299,7 @@ async function cmdStroke(args) {
 
     disconnect(ws);
     if (result.errors.includes('INSUFFICIENT_INQ')) {
+      printInqRecovery();
       process.exit(1);
     }
   } catch (err) {
@@ -339,6 +352,7 @@ async function cmdDraw(primitiveName, args) {
 
     disconnect(ws);
     if (result.errors.includes('INSUFFICIENT_INQ')) {
+      printInqRecovery();
       process.exit(1);
     }
   } catch (err) {
@@ -427,6 +441,7 @@ async function cmdCompose(args) {
 
     disconnect(ws);
     if (result.errors.includes('INSUFFICIENT_INQ')) {
+      printInqRecovery();
       process.exit(1);
     }
   } catch (err) {
@@ -818,6 +833,62 @@ async function cmdWaypoint(args) {
   }
 }
 
+async function cmdErase(args) {
+  const idsRaw = args.ids;
+  if (!idsRaw) {
+    console.log('Usage: clawdraw erase --ids <id1,id2,...>');
+    console.log('Erases strokes by ID (own strokes only).');
+    process.exit(0);
+  }
+  const ids = String(idsRaw).split(',').map(s => s.trim()).filter(Boolean);
+  if (ids.length === 0) {
+    console.log('Usage: clawdraw erase --ids <id1,id2,...>');
+    process.exit(0);
+  }
+
+  try {
+    const token = await getToken(CLAWDRAW_API_KEY);
+    const ws = await connect(token);
+    let deleted = 0;
+    let failed = 0;
+    for (const id of ids) {
+      try {
+        await deleteStroke(ws, id);
+        console.log(`  Deleted stroke ${id}`);
+        deleted++;
+      } catch (err) {
+        console.error(`  Failed to delete stroke ${id}: ${err.message}`);
+        failed++;
+      }
+    }
+    disconnect(ws);
+    console.log(`Erased ${deleted}/${ids.length} stroke(s)${failed ? `, ${failed} failed` : ''}.`);
+  } catch (err) {
+    console.error('Error:', err.message);
+    process.exit(1);
+  }
+}
+
+async function cmdWaypointDelete(args) {
+  const id = args.id;
+  if (!id) {
+    console.log('Usage: clawdraw waypoint-delete --id <id>');
+    console.log('Deletes a waypoint by ID (own waypoints only).');
+    process.exit(0);
+  }
+
+  try {
+    const token = await getToken(CLAWDRAW_API_KEY);
+    const ws = await connect(token);
+    await deleteWaypoint(ws, String(id));
+    disconnect(ws);
+    console.log(`Waypoint ${id} deleted.`);
+  } catch (err) {
+    console.error('Error:', err.message);
+    process.exit(1);
+  }
+}
+
 async function cmdChat(args) {
   const content = args.message;
   if (!content) {
@@ -1144,6 +1215,7 @@ async function cmdTemplate(args) {
 
     disconnect(ws);
     if (result.errors.includes('INSUFFICIENT_INQ')) {
+      printInqRecovery();
       process.exit(1);
     }
   } catch (err) {
@@ -1221,6 +1293,7 @@ async function cmdCollaborate(behaviorName, args) {
 
     disconnect(ws);
     if (result.errors.includes('INSUFFICIENT_INQ')) {
+      printInqRecovery();
       process.exit(1);
     }
   } catch (err) {
@@ -1257,7 +1330,10 @@ async function validateImageUrl(urlStr) {
     (parts[0] === 192 && parts[1] === 168) ||              // 192.168.0.0/16
     (parts[0] === 169 && parts[1] === 254) ||              // 169.254.0.0/16 (cloud metadata)
     parts[0] === 0 ||                                      // 0.0.0.0/8
-    address === '::1';                                     // IPv6 loopback
+    address === '::1' ||                                    // IPv6 loopback
+    address.startsWith('fe80:') ||                          // IPv6 link-local
+    address.startsWith('fc00:') ||                          // IPv6 unique local
+    address.startsWith('fd');                                // IPv6 unique local (fd00::/8)
 
   if (isPrivate) {
     throw new Error('Private/internal URLs are not allowed.');
@@ -1306,12 +1382,55 @@ async function cmdPaint(url, args) {
   let cx = args.cx !== undefined ? Number(args.cx) : null;
   let cy = args.cy !== undefined ? Number(args.cy) : null;
 
-  // Fetch image
+  // Fetch image with hardened settings
   console.log('Fetching image...');
+  const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/tiff', 'image/avif'];
   let buffer;
   try {
-    const res = await fetch(url);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30_000);
+    let res;
+    try {
+      res = await fetch(url, {
+        redirect: 'manual',
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    // Handle redirects manually — re-validate target against SSRF rules
+    if (res.status >= 300 && res.status < 400) {
+      const location = res.headers.get('location');
+      if (!location) throw new Error('Redirect with no Location header');
+      const redirectUrl = new URL(location, url).href;
+      await validateImageUrl(redirectUrl);
+      const controller2 = new AbortController();
+      const timeout2 = setTimeout(() => controller2.abort(), 30_000);
+      try {
+        res = await fetch(redirectUrl, {
+          redirect: 'error',
+          signal: controller2.signal,
+        });
+      } finally {
+        clearTimeout(timeout2);
+      }
+      if (res.status >= 300 && res.status < 400) {
+        throw new Error('Too many redirects');
+      }
+    }
+
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+    // Content-Type validation — only allow image MIME types
+    const contentType = (res.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+    if (!contentType.startsWith('image/')) {
+      throw new Error(`Unexpected Content-Type: ${contentType} (expected image/*)`);
+    }
+    if (!ALLOWED_IMAGE_TYPES.includes(contentType)) {
+      throw new Error(`Unsupported image format: ${contentType} (allowed: ${ALLOWED_IMAGE_TYPES.join(', ')})`);
+    }
+
     const contentLength = Number(res.headers.get('content-length') || 0);
     if (contentLength > MAX_IMAGE_BYTES) {
       throw new Error(`Image too large (${(contentLength / 1024 / 1024).toFixed(1)} MB, max 50 MB)`);
@@ -1321,6 +1440,10 @@ async function cmdPaint(url, args) {
       throw new Error(`Image too large (${(buffer.length / 1024 / 1024).toFixed(1)} MB, max 50 MB)`);
     }
   } catch (err) {
+    if (err.name === 'AbortError') {
+      console.error('Error fetching image: request timed out (30s limit)');
+      process.exit(1);
+    }
     console.error(`Error fetching image: ${err.message}`);
     process.exit(1);
   }
@@ -1405,6 +1528,7 @@ async function cmdPaint(url, args) {
 
     disconnect(ws);
     if (result.errors.includes('INSUFFICIENT_INQ')) {
+      printInqRecovery();
       process.exit(1);
     }
   } catch (err) {
@@ -1479,6 +1603,14 @@ switch (command) {
     cmdWaypoint(parseArgs(rest));
     break;
 
+  case 'erase':
+    cmdErase(parseArgs(rest));
+    break;
+
+  case 'waypoint-delete':
+    cmdWaypointDelete(parseArgs(rest));
+    break;
+
   case 'chat':
     cmdChat(parseArgs(rest));
     break;
@@ -1533,6 +1665,8 @@ switch (command) {
     console.log('  buy [--tier splash|bucket|barrel|ocean]  Buy INQ via Stripe checkout');
     console.log('  waypoint --name "..." --x N --y N --zoom Z  Drop a waypoint on the canvas');
     console.log('  chat --message "..."                       Send a chat message');
+    console.log('  erase --ids <id1,id2,...>                   Erase strokes by ID (own strokes only)');
+    console.log('  waypoint-delete --id <id>                  Delete a waypoint (own waypoints only)');
     console.log('  paint <url> [--mode M] [--width N]         Paint an image onto the canvas');
     console.log('  template <name> --at X,Y [--scale N]       Draw an SVG template shape');
     console.log('  template --list [--category <cat>]          List available templates');

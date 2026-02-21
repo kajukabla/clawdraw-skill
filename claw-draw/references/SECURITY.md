@@ -72,7 +72,11 @@ The ClawDraw CLI is a **data-only pipeline**:
 
 The paint command fetches an image from a user-provided URL, processes it with `sharp` (libvips), and converts it to strokes:
 
-- **URL validation** — Only HTTP/HTTPS protocols are allowed. Private and internal IP ranges (127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16) are blocked via DNS resolution to prevent SSRF.
+- **URL validation** — Only HTTP/HTTPS protocols are allowed. Private and internal IP ranges (127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, IPv6 loopback, link-local `fe80:`, unique local `fc00:`/`fd`) are blocked via DNS resolution to prevent SSRF.
+- **Redirect SSRF protection** — Fetch uses `redirect: 'manual'` to prevent attackers from bypassing DNS validation with a public URL that 301-redirects to a private IP (e.g. `169.254.169.254`). Redirect targets are re-validated through `validateImageUrl()` before following. Maximum 1 redirect hop.
+- **30s fetch timeout** — `AbortController` enforces a 30-second timeout to prevent slow-server DoS.
+- **Content-Type validation** — Only `image/*` MIME types are accepted. Non-image responses are rejected before being passed to `sharp`.
+- **Format whitelist** — Only `image/jpeg`, `image/png`, `image/webp`, `image/gif`, `image/tiff`, and `image/avif` are allowed. Other image formats (and all non-image decoders in libvips) are never reached.
 - **Response size limit** — Images larger than 50 MB are rejected.
 - **Image processing** — `sharp` (libvips) processes the image into pixel arrays. The resulting pixel data is passed to `lib/image-trace.mjs` (pure math, no I/O) which converts it to stroke objects.
 - **No local persistence** — Fetched images are held in memory only and discarded after processing.
@@ -90,7 +94,7 @@ The CLI contains none of the following:
 
 ### Automated Verification
 
-A 315-line security test suite (`scripts/__tests__/security.test.ts`) validates these guarantees by scanning all published source files for dangerous patterns. The suite checks for:
+A security test suite (`scripts/__tests__/security.test.ts`, 72 tests) validates these guarantees by scanning all published source files for dangerous patterns. The suite checks for:
 
 - Calls to `eval()`, `Function()`, and `new Function`
 - Imports of `child_process`, `fs` (outside allowed paths), and `net`
@@ -108,6 +112,17 @@ The pattern `<generator> | clawdraw stroke --stdin` is a standard Unix data pipe
 3. Sends valid strokes to the relay over WSS
 
 The CLI has no knowledge of the data source — it cannot inspect, modify, or evaluate the process on the other side of the pipe. This is identical to patterns like `curl | jq` or `echo | wc`.
+
+### Sharp (libvips) Native Dependency
+
+The `sharp` package includes native `.node` binaries (compiled libvips). VirusTotal and some scanners flag any package containing native addons because compiled binaries cannot be statically analyzed for malicious behavior. This is a known false-positive pattern for Node.js packages with native dependencies.
+
+Mitigations in place:
+- **sharp is a widely-used, audited package** — 30M+ weekly npm downloads, maintained by the lovell/sharp team
+- **Declared as a direct dependency** — listed in `package.json` `dependencies`, not bundled or hidden
+- **Input is constrained** — only images that pass URL validation, Content-Type validation, format whitelist, and size limits reach sharp
+- **Processing is read-only** — sharp converts images to pixel arrays; no filesystem writes, no code execution
+- **Output is pure data** — pixel arrays are passed to `lib/image-trace.mjs` (pure math) which produces stroke JSON
 
 ### Excluded Development Tools
 

@@ -182,6 +182,52 @@ describe('cmdPaint SSRF protection', () => {
 });
 
 // ---------------------------------------------------------------------------
+// cmdPaint fetch hardening
+// ---------------------------------------------------------------------------
+
+describe('cmdPaint fetch hardening', () => {
+  const src = readScript('clawdraw.mjs');
+
+  it('should use AbortController for fetch timeout', () => {
+    expect(src).toContain('AbortController');
+  });
+
+  it('should use redirect: manual to prevent silent redirect SSRF', () => {
+    expect(src).toContain("redirect: 'manual'");
+  });
+
+  it('should re-validate redirect target with validateImageUrl', () => {
+    // validateImageUrl must be called at least twice: initial URL + redirect target
+    const matches = src.match(/validateImageUrl\s*\(/g) || [];
+    expect(matches.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('should validate Content-Type as image/*', () => {
+    expect(src).toContain('content-type');
+    expect(src).toMatch(/image\//);
+  });
+
+  it('should have a MIME type whitelist including common image formats', () => {
+    expect(src).toContain('image/jpeg');
+    expect(src).toContain('image/png');
+    expect(src).toContain('image/webp');
+  });
+
+  it('should reject too many redirects', () => {
+    expect(src).toContain('Too many redirects');
+  });
+
+  it('should handle AbortError for timeout', () => {
+    expect(src).toContain('AbortError');
+  });
+
+  it('should block IPv6 private ranges (link-local and unique local)', () => {
+    expect(src).toContain('fe80:');
+    expect(src).toContain('fc00:');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Primitives safety — regression guards against re-introducing flagged patterns
 // ---------------------------------------------------------------------------
 

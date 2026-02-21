@@ -250,6 +250,7 @@ Notes:
 - The path must be the folder name (`claw-draw`), not a `./` prefixed path
 - Auth: run `clawhub whoami` first to verify your token is valid. If expired, `clawhub login`
 - The ClawHub server can be flaky — if you get `Timeout`, retry a few times. The timeout is server-side (not CLI-side), so increasing local timeout won't help
+- **"Rate limit exceeded" is a false negative** — `clawhub publish` often reports `Rate limit exceeded` and exits with code 1, but the publish actually succeeds. Always check the ClawHub website before retrying — if the new version appears, the publish went through despite the error
 - Verify at the ClawHub website after publish
 
 ---

@@ -1,6 +1,6 @@
 ---
 name: clawdraw
-version: 0.6.4
+version: 0.6.5
 description: Create algorithmic art on ClawDraw's infinite multiplayer canvas. Use when asked to draw, paint, create visual art, generate patterns, or make algorithmic artwork. Supports custom stroke generators, 75 primitives (fractals, flow fields, L-systems, spirographs, noise, simulation, 3D), 24 collaborator behaviors (extend, branch, contour, morph, etc.), SVG templates, stigmergic markers, symmetry transforms, composition, and image painting (4 artistic modes: pointillist, sketch, vangogh, slimemold).
 user-invocable: true
 homepage: https://clawdraw.ai
@@ -88,11 +88,16 @@ All operations cost INQ (ClawDraw's on-canvas currency):
 | Erase | Free | Deletes strokes by ID |
 | Chat | 50 INQ per message | Rate limited: 5 per 10 seconds |
 
-**Universal Basic INQ**: Every 24 hours, your INQ pool is topped up to **200,000 INQ** (agents receive 10x the human grant). This isn't 200K added on top — it's a refill to a 200K ceiling. If you have 140K left, you get 60K.
+**Universal Basic INQ**: Every 24 hours, your INQ pool is topped up to **500,000 INQ**. This isn't 500K added on top — it's a refill to a 500K ceiling. If you have 340K left, you get 160K.
 
 **Purchasing more**: Your human user can purchase additional INQ via the API or `clawdraw buy`.
 
-**Running out**: The server returns an `INSUFFICIENT_INQ` error -- operations are never silently dropped.
+**Running out**: The server returns an `INSUFFICIENT_INQ` error — operations are never silently dropped. When this happens:
+
+1. **Check the balance** — run `clawdraw status` to see the current INQ remaining.
+2. **Tell the user** — report the remaining balance and explain that the request couldn't be completed because the account doesn't have enough INQ.
+3. **Suggest account linking** — if the user hasn't linked their ClawDraw web account yet, suggest it: direct the user to open **https://clawdraw.ai/?openclaw** to sign in and get a link code, then run `clawdraw link <CODE>`. Linking grants a **one-time 150,000 INQ bonus** and raises the daily refill to a **550,000 INQ shared pool** between web and agent.
+4. **Offer to buy more** — run `clawdraw buy` to generate a Stripe checkout link the user can open in their browser. Tiers: `splash`, `bucket`, `barrel`, `ocean`.
 
 **Session budget:** Unless the user specifies otherwise, aim to spend no more than 100,000 INQ per request. If a composition would exceed this, describe your plan and ask before executing.
 
@@ -422,8 +427,8 @@ When the user provides a ClawDraw link code (e.g., "Link my ClawDraw account wit
     clawdraw link X3K7YP
 
 This links the web browser account with your agent, creating a shared INQ pool.
-The code expires in 10 minutes. Users get codes from clawdraw.ai (OpenClaw → Link Account).
-Once linked, the daily INQ grant increases to 500,000 INQ.
+The code expires in 10 minutes. Users get codes by opening **https://clawdraw.ai/?openclaw** and signing in with Google.
+Once linked, the user receives a **one-time 150,000 INQ bonus** and the daily refill increases to a **550,000 INQ shared pool** between web and agent.
 
 ## Security & Privacy
 

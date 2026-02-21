@@ -38,8 +38,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { getToken, createAgent, getAgentInfo } from './auth.mjs';
-import { connect, sendStrokes, addWaypoint, getWaypointUrl, disconnect } from './connection.mjs';
-import { captureSnapshot } from './snapshot.mjs';
+import { connect, drawAndTrack, addWaypoint, getWaypointUrl, disconnect } from './connection.mjs';
 import { parseSymmetryMode, applySymmetry } from './symmetry.mjs';
 import { getPrimitive, listPrimitives, getPrimitiveInfo, executePrimitive } from '../primitives/index.mjs';
 import { setNearbyCache } from '../primitives/collaborator.mjs';
@@ -49,7 +48,6 @@ import { traceImage } from '../lib/image-trace.mjs';
 import { lookup } from 'node:dns/promises';
 import sharp from 'sharp';
 
-const TILE_CDN_URL = 'https://tiles.clawdraw.ai/tiles';
 const RELAY_HTTP_URL = 'https://relay.clawdraw.ai';
 const LOGIC_HTTP_URL = 'https://api.clawdraw.ai';
 
@@ -280,24 +278,11 @@ async function cmdStroke(args) {
   try {
     const token = await getToken(CLAWDRAW_API_KEY);
     const ws = await connect(token);
-    const result = await sendStrokes(ws, strokes);
+    const result = await drawAndTrack(ws, strokes, { name: 'Custom strokes' });
     markCustomAlgorithmUsed();
     console.log(`Sent ${result.strokesAcked}/${result.strokesSent} stroke(s) accepted.`);
     if (result.rejected > 0) {
       console.log(`  ${result.rejected} batch(es) rejected: ${result.errors.join(', ')}`);
-    }
-
-    // Capture snapshot if any strokes were accepted
-    if (result.strokesAcked > 0) {
-      try {
-        const snapshot = await captureSnapshot(ws, strokes, TILE_CDN_URL);
-        if (snapshot) {
-          console.log(`Snapshot: ${snapshot.imagePath} (${snapshot.width}x${snapshot.height})`);
-          console.log(`Waypoint: https://clawdraw.ai/?x=${snapshot.center.x}&y=${snapshot.center.y}&z=0.8`);
-        }
-      } catch (snapErr) {
-        console.warn(`[snapshot] Failed: ${snapErr.message}`);
-      }
     }
 
     disconnect(ws);
@@ -344,23 +329,12 @@ async function cmdDraw(primitiveName, args) {
   try {
     const token = await getToken(CLAWDRAW_API_KEY);
     const ws = await connect(token);
-    const result = await sendStrokes(ws, strokes);
+    const cx = args.cx !== undefined ? Number(args.cx) : undefined;
+    const cy = args.cy !== undefined ? Number(args.cy) : undefined;
+    const result = await drawAndTrack(ws, strokes, { cx, cy, name: primitiveName });
     console.log(`Drew ${primitiveName}: ${result.strokesAcked}/${result.strokesSent} stroke(s) accepted.`);
     if (result.rejected > 0) {
       console.log(`  ${result.rejected} batch(es) rejected: ${result.errors.join(', ')}`);
-    }
-
-    // Capture snapshot if any strokes were accepted
-    if (result.strokesAcked > 0) {
-      try {
-        const snapshot = await captureSnapshot(ws, strokes, TILE_CDN_URL);
-        if (snapshot) {
-          console.log(`Snapshot: ${snapshot.imagePath} (${snapshot.width}x${snapshot.height})`);
-          console.log(`Waypoint: https://clawdraw.ai/?x=${snapshot.center.x}&y=${snapshot.center.y}&z=0.8`);
-        }
-      } catch (snapErr) {
-        console.warn(`[snapshot] Failed: ${snapErr.message}`);
-      }
     }
 
     disconnect(ws);
@@ -436,7 +410,9 @@ async function cmdCompose(args) {
   try {
     const token = await getToken(CLAWDRAW_API_KEY);
     const ws = await connect(token);
-    const result = await sendStrokes(ws, allStrokes);
+    const cx = origin.x !== 0 ? origin.x : undefined;
+    const cy = origin.y !== 0 ? origin.y : undefined;
+    const result = await drawAndTrack(ws, allStrokes, { cx, cy, name: 'Composition' });
 
     // Mark custom if any custom primitives were used
     if (primitives.some(p => p.type === 'custom')) {
@@ -447,19 +423,6 @@ async function cmdCompose(args) {
     console.log(`Composed: ${result.strokesAcked}/${result.strokesSent} stroke(s) accepted${sym}.`);
     if (result.rejected > 0) {
       console.log(`  ${result.rejected} batch(es) rejected: ${result.errors.join(', ')}`);
-    }
-
-    // Capture snapshot if any strokes were accepted
-    if (result.strokesAcked > 0) {
-      try {
-        const snapshot = await captureSnapshot(ws, allStrokes, TILE_CDN_URL);
-        if (snapshot) {
-          console.log(`Snapshot: ${snapshot.imagePath} (${snapshot.width}x${snapshot.height})`);
-          console.log(`Waypoint: https://clawdraw.ai/?x=${snapshot.center.x}&y=${snapshot.center.y}&z=0.8`);
-        }
-      } catch (snapErr) {
-        console.warn(`[snapshot] Failed: ${snapErr.message}`);
-      }
     }
 
     disconnect(ws);
@@ -718,10 +681,13 @@ async function cmdFindSpace(args) {
 
 async function cmdLink(code) {
   if (!code) {
-    console.error('Usage: clawdraw link <CODE>');
-    console.error('');
-    console.error('Get a code from https://clawdraw.ai → 🦞 OpenClaw → Link Account');
-    process.exit(1);
+    console.log('To link your ClawDraw web account:');
+    console.log('');
+    console.log('  1. Open: https://clawdraw.ai/?openclaw');
+    console.log('  2. Sign in with Google');
+    console.log('  3. Copy the 6-character link code');
+    console.log('  4. Run:  clawdraw link <CODE>');
+    process.exit(0);
   }
 
   // Uses LOGIC_HTTP_URL from top-level constant
@@ -739,7 +705,7 @@ async function cmdLink(code) {
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       if (res.status === 404) {
-        throw new Error('Invalid or expired link code. Get a new code from clawdraw.ai → 🦞 OpenClaw → Link Account.');
+        throw new Error('Invalid or expired link code. Get a new code at https://clawdraw.ai/?openclaw');
       }
       throw new Error(err.message || `HTTP ${res.status}`);
     }
@@ -752,7 +718,8 @@ async function cmdLink(code) {
     console.log(`  Master ID:   ${data.masterId}`);
     console.log('');
     console.log('Your web account and agents now share the same INQ pool.');
-    console.log('Daily INQ grant increased to 500,000 INQ.');
+    console.log('Daily shared INQ grant: 550,000 INQ.');
+    console.log('One-time linking bonus: 150,000 INQ credited.');
   } catch (err) {
     console.error('Error:', err.message);
     process.exit(1);
@@ -1169,22 +1136,10 @@ async function cmdTemplate(args) {
   try {
     const token = await getToken(CLAWDRAW_API_KEY);
     const ws = await connect(token);
-    const result = await sendStrokes(ws, strokes);
+    const result = await drawAndTrack(ws, strokes, { cx: atX, cy: atY, name: name });
     console.log(`Drew template "${name}": ${result.strokesAcked}/${result.strokesSent} stroke(s) accepted.`);
     if (result.rejected > 0) {
       console.log(`  ${result.rejected} batch(es) rejected: ${result.errors.join(', ')}`);
-    }
-
-    if (result.strokesAcked > 0) {
-      try {
-        const snapshot = await captureSnapshot(ws, strokes, TILE_CDN_URL);
-        if (snapshot) {
-          console.log(`Snapshot: ${snapshot.imagePath} (${snapshot.width}x${snapshot.height})`);
-          console.log(`Waypoint: https://clawdraw.ai/?x=${snapshot.center.x}&y=${snapshot.center.y}&z=0.8`);
-        }
-      } catch (snapErr) {
-        console.warn(`[snapshot] Failed: ${snapErr.message}`);
-      }
     }
 
     disconnect(ws);
@@ -1258,23 +1213,10 @@ async function cmdCollaborate(behaviorName, args) {
   // Send via WebSocket
   try {
     const ws = await connect(token);
-    const result = await sendStrokes(ws, strokes);
+    const result = await drawAndTrack(ws, strokes, { cx: x, cy: y, name: behaviorName });
     console.log(`  ${behaviorName}: ${result.strokesAcked}/${result.strokesSent} stroke(s) accepted.`);
     if (result.rejected > 0) {
       console.log(`  ${result.rejected} batch(es) rejected: ${result.errors.join(', ')}`);
-    }
-
-    // Capture snapshot if any strokes were accepted
-    if (result.strokesAcked > 0) {
-      try {
-        const snapshot = await captureSnapshot(ws, strokes, TILE_CDN_URL);
-        if (snapshot) {
-          console.log(`Snapshot: ${snapshot.imagePath} (${snapshot.width}x${snapshot.height})`);
-          console.log(`Waypoint: https://clawdraw.ai/?x=${snapshot.center.x}&y=${snapshot.center.y}&z=0.8`);
-        }
-      } catch (snapErr) {
-        console.warn(`[snapshot] Failed: ${snapErr.message}`);
-      }
     }
 
     disconnect(ws);
@@ -1451,37 +1393,14 @@ async function cmdPaint(url, args) {
   // Connect and draw
   try {
     const ws = await connect(token, { center: { x: cx, y: cy }, zoom: 0.3 });
-
-    // Follow link — printed before drawing so user can watch live
-    console.log(`Follow along: https://clawdraw.ai/?x=${cx}&y=${cy}&z=0.3`);
-
-    const result = await sendStrokes(ws, strokes);
+    const result = await drawAndTrack(ws, strokes, {
+      cx, cy, zoom: 0.3,
+      name: `Paint: ${mode}`,
+      description: `${mode} rendering — ${strokes.length} strokes`,
+    });
     console.log(`Painted ${mode}: ${result.strokesAcked}/${result.strokesSent} stroke(s) accepted.`);
     if (result.rejected > 0) {
       console.log(`  ${result.rejected} batch(es) rejected: ${result.errors.join(', ')}`);
-    }
-
-    if (result.strokesAcked > 0) {
-      // Waypoint — dropped after drawing so user can revisit
-      try {
-        const wp = await addWaypoint(ws, {
-          name: `Paint: ${mode}`,
-          x: cx, y: cy, zoom: 0.3,
-          description: `${mode} rendering — ${strokes.length} strokes`,
-        });
-        console.log(`Waypoint: ${getWaypointUrl(wp)}`);
-      } catch (wpErr) {
-        console.warn(`[waypoint] Failed: ${wpErr.message}`);
-      }
-
-      try {
-        const snapshot = await captureSnapshot(ws, strokes, TILE_CDN_URL);
-        if (snapshot) {
-          console.log(`Snapshot: ${snapshot.imagePath} (${snapshot.width}x${snapshot.height})`);
-        }
-      } catch (snapErr) {
-        console.warn(`[snapshot] Failed: ${snapErr.message}`);
-      }
     }
 
     disconnect(ws);

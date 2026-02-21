@@ -14,8 +14,11 @@
  */
 
 import WebSocket from 'ws';
+import { computeBoundingBox, captureSnapshot } from './snapshot.mjs';
 
 const WS_URL = 'wss://relay.clawdraw.ai/ws';
+
+const TILE_CDN_URL = 'https://tiles.clawdraw.ai/tiles';
 
 // ---------------------------------------------------------------------------
 // tile.updated listener registry (used by snapshot.mjs)
@@ -381,6 +384,64 @@ export function addWaypoint(ws, { name, x, y, zoom, description }) {
  */
 export function getWaypointUrl(waypoint) {
   return `https://clawdraw.ai/?wp=${waypoint.id}`;
+}
+
+/**
+ * Send strokes with follow link before and waypoint + snapshot after.
+ *
+ * Wraps sendStrokes() so every drawing command gets:
+ *   1. A "Follow along" link printed BEFORE strokes are sent
+ *   2. A persistent waypoint dropped AFTER strokes succeed
+ *   3. A snapshot captured for visual confirmation
+ *
+ * @param {WebSocket} ws - Connected WebSocket
+ * @param {Array} strokes - Array of stroke objects
+ * @param {object} [opts]
+ * @param {number} [opts.cx] - Center X (computed from strokes if omitted)
+ * @param {number} [opts.cy] - Center Y (computed from strokes if omitted)
+ * @param {number} [opts.zoom=0.3] - Zoom level for links
+ * @param {string} [opts.name] - Waypoint name
+ * @param {string} [opts.description] - Waypoint description
+ * @returns {Promise<SendResult>}
+ */
+export async function drawAndTrack(ws, strokes, { cx, cy, zoom = 0.3, name, description } = {}) {
+  // Compute center from strokes if not provided
+  if (cx === undefined || cy === undefined) {
+    const bbox = computeBoundingBox(strokes);
+    if (cx === undefined) cx = Math.round((bbox.minX + bbox.maxX) / 2);
+    if (cy === undefined) cy = Math.round((bbox.minY + bbox.maxY) / 2);
+  }
+
+  // Follow link BEFORE sending
+  console.log(`Follow along: https://clawdraw.ai/?x=${cx}&y=${cy}&z=${zoom}`);
+
+  // Send strokes
+  const result = await sendStrokes(ws, strokes);
+
+  // Post-send: waypoint + snapshot
+  if (result.strokesAcked > 0) {
+    try {
+      const wp = await addWaypoint(ws, {
+        name: name || 'Drawing',
+        x: cx, y: cy, zoom,
+        description: description || `${strokes.length} strokes`,
+      });
+      console.log(`Waypoint: ${getWaypointUrl(wp)}`);
+    } catch (wpErr) {
+      console.warn(`[waypoint] Failed: ${wpErr.message}`);
+    }
+
+    try {
+      const snapshot = await captureSnapshot(ws, strokes, TILE_CDN_URL);
+      if (snapshot) {
+        console.log(`Snapshot: ${snapshot.imagePath} (${snapshot.width}x${snapshot.height})`);
+      }
+    } catch (snapErr) {
+      console.warn(`[snapshot] Failed: ${snapErr.message}`);
+    }
+  }
+
+  return result;
 }
 
 /**

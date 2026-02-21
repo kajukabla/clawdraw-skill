@@ -178,6 +178,18 @@ The **registry metadata scan** returned **Suspicious (Medium Confidence)** — s
 
 **What changed from v0.7.2:** Added `open` dependency for browser auto-open. The code scan explicitly confirmed "no child_process" in our source — the `open` package approach (static `import open from 'open'` instead of dynamic `import('node:child_process')`) successfully kept our source clean. The registry metadata issue remains unfixable from our side.
 
+### v0.8.1 Scan Result
+
+The registry metadata scan returned **Suspicious (High Confidence)** — same root cause as previous versions: the top-level registry summary reports "no env vars" and "no install spec" while SKILL.md metadata correctly declares both. This is the same ClawHub registry-side extraction/display bug documented since v0.7.2. Our metadata format matches the `ClawdisSkillMetadataSchema` (flat top-level keys, `files` present in frontmatter). The confidence increase from "medium" (v0.8.0) to "high" does not reflect any code change — it appears to be scanner-side recalibration.
+
+**What changed from v0.8.0:** Address scanner concerns documentation, auto-placement improvements, INQ docs updates. No security-relevant code changes.
+
+### v0.8.2 Scan Result
+
+*(Pending — check ClawHub scanner after publish)*
+
+**What changed from v0.8.1:** Added `scripts/roam.mjs` (autonomous roam mode), viewport follow-tracking fix in `connection.mjs`, browser-open TTL, viridis vortex scaling correction. `roam.mjs` uses the same patterns as existing scripts — `process.env.CLAWDRAW_API_KEY` only, no `child_process`, no `eval`, no dynamic `import()`, no `readdir`. The `__SKILL_TEST_RELAY_URL` env var is test-only and lives in `scripts/` (not `primitives/` or `lib/`), matching existing patterns.
+
 ---
 
 ## 3. Version Bump
@@ -218,6 +230,7 @@ The `files` field in `package.json` controls what gets published:
   "scripts/connection.mjs",
   "scripts/snapshot.mjs",
   "scripts/symmetry.mjs",
+  "scripts/roam.mjs",
   "primitives/",
   "lib/",
   "templates/",
@@ -281,7 +294,7 @@ Notes:
 - The path must be the folder name (`claw-draw`), not a `./` prefixed path
 - Auth: run `clawhub whoami` first to verify your token is valid. If expired, `clawhub login`
 - The ClawHub server can be flaky — if you get `Timeout`, retry a few times. The timeout is server-side (not CLI-side), so increasing local timeout won't help
-- **"Rate limit exceeded" is a false negative** — `clawhub publish` often reports `Rate limit exceeded` and exits with code 1, but the publish actually succeeds. Always check the ClawHub website before retrying — if the new version appears, the publish went through despite the error
+- **"Rate limit exceeded" and "Timeout" are false negatives** — `clawhub publish` routinely reports `Rate limit exceeded` or `Timeout` and exits with code 1, but the publish actually succeeds. This happens almost every publish — treat it as expected behavior, not an error. Always check the ClawHub website before retrying — if the new version appears, the publish went through despite the error
 - Verify at the ClawHub website after publish
 
 ---
@@ -409,7 +422,7 @@ description: One-line description (used by OpenClaw for skill matching)
 user-invocable: true
 homepage: https://clawdraw.ai
 emoji: 🎨
-files: ["scripts/clawdraw.mjs","scripts/auth.mjs","scripts/connection.mjs","scripts/snapshot.mjs","scripts/symmetry.mjs","primitives/","lib/","templates/","community/"]
+files: ["scripts/clawdraw.mjs","scripts/auth.mjs","scripts/connection.mjs","scripts/snapshot.mjs","scripts/symmetry.mjs","scripts/roam.mjs","primitives/","lib/","templates/","community/"]
 metadata: {"emoji":"🎨","category":"art","primaryEnv":"CLAWDRAW_API_KEY","requires":{"bins":["node"],"env":["CLAWDRAW_API_KEY"]},"install":[{"id":"npm","kind":"node","package":"@clawdraw/skill","bins":["clawdraw"],"label":"Install ClawDraw CLI (npm)"}]}
 ---
 ```
@@ -474,6 +487,8 @@ This separation is important — if `dev/` leaked into either published bundle, 
 
 | Version | Date | Highlights |
 |---------|------|-----------|
+| 0.8.2 | 2026-02-21 | Autonomous roam mode (`scripts/roam.mjs`), viewport follow-tracking fix, browser-open TTL, viridis vortex scaling correction |
+| 0.8.1 | 2026-02-21 | Address scanner concerns documentation, auto-placement improvements, INQ docs updates |
 | 0.8.0 | 2026-02-21 | Freestyle paint mode (`--mode freestyle`), canvas vision (`clawdraw look`), browser auto-open via `open` package (replaces `child_process`), tile CDN migration (`tiles.clawdraw.ai` → `relay.clawdraw.ai/tiles`), `references/VISION.md` |
 | 0.7.2 | 2026-02-20 | Fix registry metadata: flatten to match `ClawdisSkillMetadataSchema` (was namespaced under `clawdbot`/`openclaw`, registry expects flat `primaryEnv`/`requires`/`install`) |
 | 0.7.1 | 2026-02-20 | Fetch hardening (redirect SSRF, timeout, Content-Type, format whitelist), dual metadata namespace, IPv6 SSRF coverage, INQ recovery flow with `?openclaw` deep link |

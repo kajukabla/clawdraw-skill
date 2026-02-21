@@ -102,7 +102,7 @@ The v0.6.0 scan classified the bundle as **benign** but raised informational war
 
 1. **`dev/sync-algos.mjs` in ClawHub bundle** — contained `execSync`, `child_process`, `readdir`. Was excluded from npm via `files` allowlist, but `clawhub publish` uploads the entire directory. **Fix (v0.6.1):** moved `dev/` to repo root, outside `claw-draw/`.
 2. **Test files in ClawHub bundle** — `scripts/__tests__/security.test.ts` and `scripts/connection.test.ts` appeared in the bundle. **Fix (v0.6.1):** added `.clawhubignore` to exclude test files.
-3. **Registry metadata mismatch** — `requires` and `install` were nested under `clawdbot` in the metadata JSON. ClawHub's parser expects them under the `openclaw` namespace (`metadata.openclaw.requires`). **Fix (v0.6.1):** hoisted `requires` and `install` to root of metadata object — but this was still wrong (needed `metadata.openclaw`). **Fix (v0.6.3):** moved all registry metadata under `metadata.openclaw` namespace. (Later switched to `clawdbot` in v0.7.0 — see current rules above.)
+3. **Registry metadata mismatch** — `requires` and `install` were nested under `clawdbot` in the metadata JSON. Multiple fix attempts followed: v0.6.1 hoisted to root (wrong), v0.6.3 moved to `openclaw` namespace (wrong), v0.7.0 switched to `clawdbot` (wrong), v0.7.1 tried dual namespace (wrong). **Actual fix (v0.7.2):** metadata must be **flat** — top-level keys matching `ClawdisSkillMetadataSchema`. No namespace wrapping at all. See "v0.7.2 Scan Result" below.
 4. **`package-lock.json` in bundle** — unnecessary file. **Fix (v0.6.1):** added to `.clawhubignore`.
 
 ### v0.7.0 Security Scan Result
@@ -117,9 +117,11 @@ The v0.7.0 release renamed the metadata namespace from `openclaw` to `clawdbot`.
 
 This made the skill appear to hide its env-var requirement and install mechanism, triggering the suspicion flag.
 
-**Fix (v0.7.1):** Provide metadata under both `clawdbot` and `openclaw` namespaces in SKILL.md frontmatter. Both contain identical `requires`, `install`, and `primaryEnv` declarations.
+**Fix (v0.7.1):** Tried providing metadata under both `clawdbot` and `openclaw` namespaces — still failed. The registry reported "none" for both.
 
-**Lesson:** Never remove the `openclaw` namespace from metadata — the scanner reads it. When changing namespace conventions, provide both namespaces during the transition period.
+**Actual fix (v0.7.2):** The `ClawdisSkillMetadataSchema` (in the clawhub CLI at `schema/schemas.js:236`) defines a **flat** structure: `{ primaryEnv?, emoji?, requires?, install?, ... }`. The registry parser applies this schema directly to the `metadata` value. Any namespace wrapping (`clawdbot`, `openclaw`, or both) puts keys outside the schema — they're silently ignored, and the parser finds no `primaryEnv`/`requires`/`install` at the top level. The fix was to remove all namespace wrapping and use flat top-level keys.
+
+**Lesson:** The `metadata` value in SKILL.md frontmatter must be **flat** — keys directly matching `ClawdisSkillMetadataSchema`. No `clawdbot`/`openclaw`/any namespace wrapping. The "use `metadata.openclaw` namespace" advice from v0.6.3 was our own hypothesis — it was wrong, and no skill on ClawHub actually uses namespaced metadata for `requires`/`install`.
 
 #### Issue 2: Image processing attack surface (`cmdPaint`)
 
@@ -146,6 +148,23 @@ Existing protections (SSRF via DNS lookup, 50MB size limit, parameter clamping) 
 #### Bundled UX fix: INQ recovery flow
 
 Not a scanner issue, but bundled into v0.7.1: all 6 `INSUFFICIENT_INQ` exit points now call `printInqRecovery()`, which always shows the `?openclaw` deep link (linking bonus) before suggesting `clawdraw buy`. SKILL.md agent instructions updated to enforce link-first-then-buy flow and never use bare `clawdraw.ai` URLs.
+
+### v0.7.2 Scan Result
+
+The OpenClaw security scanner classified the skill as **benign** with no informational warnings. The registry now correctly reports:
+- "Required env vars: CLAWDRAW_API_KEY"
+- "Required binaries: node"
+- Install spec: npm package `@clawdraw/skill` with `clawdraw` binary
+
+**What changed:** Flattened SKILL.md frontmatter metadata to match `ClawdisSkillMetadataSchema`. Previously metadata was wrapped under `clawdbot`/`openclaw` namespaces — the registry parser applies the schema directly to the `metadata` value and silently ignores unrecognized keys like namespace wrappers. Flat top-level `primaryEnv`, `requires`, `install` keys are what the schema expects.
+
+**Root cause of the multi-version metadata saga (v0.6.1 through v0.7.1):** Every attempt to fix registry metadata extraction used namespace wrapping (`openclaw`, `clawdbot`, or both). The actual schema is flat. The "use `metadata.openclaw` namespace" advice was our own hypothesis from v0.6.3 — no skill on ClawHub uses namespaced metadata. The schema definition lives at `ClawdisSkillMetadataSchema` in the clawhub CLI (`dist/schema/schemas.js`).
+
+**Three things that must all be true for registry metadata to work:**
+
+1. **`files` key in frontmatter** — without it, ClawHub classifies the skill as "instruction-only" and skips metadata parsing entirely (fixed in v0.6.4)
+2. **Flat metadata structure** — `primaryEnv`, `requires`, `install` as top-level keys in the metadata JSON, no namespace wrapping (fixed in v0.7.2)
+3. **`requires.env` matches actual usage** — env vars declared in metadata must match what's accessed in code; undeclared env vars trigger suspicion
 
 ---
 

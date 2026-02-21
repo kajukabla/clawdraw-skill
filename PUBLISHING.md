@@ -437,13 +437,13 @@ git push
 ```yaml
 ---
 name: clawdraw
-version: 0.8.5
+version: 0.8.6
 description: One-line description (used by OpenClaw for skill matching)
 user-invocable: true
 homepage: https://clawdraw.ai
 emoji: 🎨
 files: ["scripts/clawdraw.mjs","scripts/auth.mjs","scripts/connection.mjs","scripts/snapshot.mjs","scripts/symmetry.mjs","scripts/roam.mjs","primitives/","lib/","templates/","community/"]
-metadata: {"emoji":"🎨","primaryEnv":"CLAWDRAW_API_KEY","always":false,"requires":{"bins":["node"]},"install":[{"id":"npm","kind":"node","package":"@clawdraw/skill","bins":["clawdraw"],"label":"Install ClawDraw CLI (npm)"}],"openclaw":{"primaryEnv":"CLAWDRAW_API_KEY","always":false,"requires":{"bins":["node"]},"install":[{"id":"npm","kind":"node","package":"@clawdraw/skill","bins":["clawdraw"],"label":"Install ClawDraw CLI (npm)"}]}}
+metadata: {"emoji":"🎨","always":false,"requires":{"bins":["node"]},"install":[{"id":"npm","kind":"node","package":"@clawdraw/skill","bins":["clawdraw"],"label":"Install ClawDraw CLI (npm)"}],"openclaw":{"always":false,"requires":{"bins":["node"]},"install":[{"id":"npm","kind":"node","package":"@clawdraw/skill","bins":["clawdraw"],"label":"Install ClawDraw CLI (npm)"}]}}
 ---
 ```
 
@@ -507,6 +507,7 @@ This separation is important — if `dev/` leaked into either published bundle, 
 
 | Version | Date | Highlights |
 |---------|------|-----------|
+| 0.8.6 | 2026-02-21 | Fix OpenClaw seamless install (`clawdraw setup` lead), remove `primaryEnv` from metadata, remove "Follow along" doc language — docs now describe waypoint behavior accurately |
 | 0.8.5 | 2026-02-21 | Remove `requires.env` from metadata — was blocking OpenClaw auto-setup flow by demanding API key before `clawdraw setup` could run |
 | 0.8.4 | 2026-02-21 | Security hardening: remove `__SKILL_TEST_RELAY_URL` env var override from roam.mjs, 11 new security tests (manifest consistency, dependency declarations, open package isolation, publish boundary), Scanner Transparency Checklist in SECURITY.md |
 | 0.8.2 | 2026-02-21 | Autonomous roam mode (`scripts/roam.mjs`), viewport follow-tracking fix, browser-open TTL, viridis vortex scaling correction |

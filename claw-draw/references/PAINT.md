@@ -103,4 +103,4 @@ clawdraw paint https://example.com/portrait.jpg --mode freestyle --density 1.0
 - **Position your art** with `--cx` and `--cy`, or let find-space choose automatically.
 - **HTTPS URLs only** — `file://`, `javascript:`, and other protocols are rejected for security.
 - If `sharp` is not installed, run `npm install sharp` in the skill directory.
-- The command prints a "Follow along" link before drawing starts so you can watch in real time, and drops a waypoint when finished.
+- The command creates a waypoint before drawing starts and opens it in the browser.

@@ -173,7 +173,7 @@ Every runtime dependency and its purpose:
 | `sharp` | Image processing for paint command | Native (libvips) |
 | `pngjs` | PNG encoding for canvas snapshots | Pure JS |
 | `@cwasm/webp` | WebP decoding for tile snapshots | WASM |
-| `open` | Open browser to follow drawing live | Pure JS (delegates to OS) |
+| `open` | Open waypoint in browser | Pure JS (delegates to OS) |
 
 All dependencies are declared in `package.json` `dependencies` — none are hidden, bundled, or loaded dynamically.
 

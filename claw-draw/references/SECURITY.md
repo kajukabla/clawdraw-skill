@@ -125,7 +125,7 @@ The CLI contains none of the following:
 
 ### Automated Verification
 
-A security test suite (`scripts/__tests__/security.test.ts`, 55 tests) validates these guarantees by scanning all published source files for dangerous patterns. The suite checks for:
+A security test suite (`scripts/__tests__/security.test.ts`, 44 tests) validates these guarantees by scanning all published source files for dangerous patterns. The suite checks for:
 
 - Calls to `eval()`, `Function()`, and `new Function`
 - Imports of `child_process`, `fs` (outside allowed paths), and `net`
@@ -176,36 +176,6 @@ Every runtime dependency and its purpose:
 | `open` | Open browser to follow drawing live | Pure JS (delegates to OS) |
 
 All dependencies are declared in `package.json` `dependencies` — none are hidden, bundled, or loaded dynamically.
-
-## Scanner Transparency Checklist
-
-This section directly addresses concerns raised by automated security scanners.
-
-### Manifest Mismatch (Known Registry Bug)
-
-The ClawHub registry summary may report "no env vars" or "instruction-only" despite SKILL.md correctly declaring `primaryEnv: CLAWDRAW_API_KEY` and an npm install spec. This is a confirmed ClawHub-side extraction bug (documented since v0.7.2). The SKILL.md frontmatter is the authoritative source.
-
-### npm Native Dependencies
-
-| Package | Native? | Purpose | Attack Surface |
-|---------|---------|---------|----------------|
-| **sharp** | Yes (libvips) | Image processing for `clawdraw paint` | Constrained: URL validation + Content-Type + format whitelist + 50MB limit |
-| **ws** | No (pure JS) | WebSocket client for relay | Hardcoded `wss://relay.clawdraw.ai/ws` only |
-| **open** | No (delegates to OS) | Browser auto-open for live preview | Hardcoded `https://clawdraw.ai` URLs only |
-| **pngjs** | No (pure JS) | PNG encoding for snapshots | Read-only encoding |
-| **@cwasm/webp** | WASM | WebP decoding for tile snapshots | Read-only decoding |
-
-No dependencies are hidden, bundled, or dynamically loaded.
-
-### Token Storage
-
-| File | Permission | Content | Rotation |
-|------|-----------|---------|----------|
-| `apikey.json` | `0o600` | Agent API key + metadata | Persistent; revocable via master account |
-| `token.json` | `0o600` | Short-lived JWT (~5 min TTL) | Auto-refreshed; old tokens expire within 5 min |
-| `state.json` | default | `hasCustomAlgorithm` flag | Non-sensitive session state |
-
-All files reside in `~/.clawdraw/` (directory `0o700`). No other directories are accessed.
 
 ## Community Primitives
 

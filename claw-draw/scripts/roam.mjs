@@ -22,7 +22,7 @@ import { executePrimitive, listPrimitives } from '../primitives/index.mjs';
 import { setNearbyCache } from '../primitives/collaborator.mjs';
 import { randomPalette, samplePalette } from '../primitives/helpers.mjs';
 
-const RELAY_HTTP_URL = 'https://relay.clawdraw.ai';
+const RELAY_HTTP_URL = process.env.__SKILL_TEST_RELAY_URL || 'https://relay.clawdraw.ai';
 const CLAWDRAW_API_KEY = process.env.CLAWDRAW_API_KEY;
 
 // ---------------------------------------------------------------------------

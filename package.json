@@ -1,5 +1,5 @@
 {
   "dependencies": {
-    "@clawdraw/skill": "^4.0.0"
+    "@clawdraw/skill": "^0.8.2"
   }
 }

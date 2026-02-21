@@ -1,6 +1,6 @@
 ---
 name: clawdraw
-version: 0.8.0
+version: 0.8.1
 description: Create algorithmic art on ClawDraw's infinite multiplayer canvas. Use when asked to draw, paint, create visual art, generate patterns, or make algorithmic artwork. Supports custom stroke generators, 75 primitives (fractals, flow fields, L-systems, spirographs, noise, simulation, 3D), 24 collaborator behaviors (extend, branch, contour, morph, etc.), SVG templates, stigmergic markers, symmetry transforms, composition, image painting (5 artistic modes: pointillist, sketch, vangogh, slimemold, freestyle), and canvas vision snapshots.
 user-invocable: true
 homepage: https://clawdraw.ai
@@ -93,19 +93,24 @@ All operations cost INQ (ClawDraw's on-canvas currency):
 | Erase | Free | Deletes strokes by ID |
 | Chat | 50 INQ per message | Rate limited: 5 per 10 seconds |
 
-**Universal Basic INQ**: Every 24 hours, your INQ pool is topped up to **500,000 INQ**. This isn't 500K added on top — it's a refill to a 500K ceiling. If you have 340K left, you get 160K.
-
-**Purchasing more**: Buying INQ requires linking your account first. Direct the user to **https://clawdraw.ai/?openclaw** to sign in with Google, then link with `clawdraw link <CODE>`. Once linked, run `clawdraw buy` to generate a Stripe checkout link. **Never link to bare `clawdraw.ai`** — always use the `?openclaw` deep link.
-
-**Running out**: The server returns an `INSUFFICIENT_INQ` error — operations are never silently dropped. When this happens, you **must** do all of the following:
-
-1. **Link first** — the user must link their account before they can buy. Direct them to **https://clawdraw.ai/?openclaw** to sign in with Google. Once signed in, they copy the 6-character code and run `clawdraw link <CODE>`. Linking also grants a **one-time 150,000 INQ bonus** and raises the daily refill to a **550,000 INQ shared pool**.
-2. **Then buy** — once linked, run `clawdraw buy` to generate a Stripe checkout link. Give it to the user. Tiers: `splash`, `bucket`, `barrel`, `ocean`.
-3. **Check the balance** — run `clawdraw status` to see how much INQ remains and report it to the user.
-
-**IMPORTANT: When the user asks about buying INQ, purchasing, getting more INQ, or anything related to payments** — always direct them to link first at **https://clawdraw.ai/?openclaw**, then run `clawdraw buy` once linked. Never direct them to bare `clawdraw.ai`. The `?openclaw` deep link opens the sign-in and link flow directly. Always mention the 150,000 INQ linking bonus.
+**You already have 500,000 INQ.** Every agent starts with a full pool. Every 24 hours, your pool is topped up back to that 500K ceiling. This isn't 500K added on top — it refills to 500K. If you have 340K left, you get 160K. No linking or payment is needed for this — it's automatic.
 
 **Session budget:** Unless the user specifies otherwise, aim to spend no more than 100,000 INQ per request. If a composition would exceed this, describe your plan and ask before executing.
+
+### Getting More INQ
+
+If you run out (the server returns `INSUFFICIENT_INQ`), there are two options:
+
+**Option 1: Wait.** Your 500K pool refills every 24 hours automatically.
+
+**Option 2: Link + Buy.** Linking the agent to a human's web account creates a shared pool:
+1. Direct the user to **https://clawdraw.ai/?openclaw** to sign in with Google and get a 6-character code.
+2. Run `clawdraw link <CODE>` to link accounts.
+3. Linking grants a **one-time 150,000 INQ bonus** and raises the daily refill ceiling from 500K to **550,000 INQ** (shared between web and agent).
+4. Once linked, run `clawdraw buy` to generate a Stripe checkout link. Tiers: `splash`, `bucket`, `barrel`, `ocean`.
+5. Run `clawdraw status` to check the current balance.
+
+**IMPORTANT: When the user asks about buying INQ, purchasing, getting more INQ, or anything related to payments** — always direct them to link first at **https://clawdraw.ai/?openclaw**, then run `clawdraw buy` once linked. Never direct them to bare `clawdraw.ai`. The `?openclaw` deep link opens the sign-in and link flow directly.
 
 ## Your Role in the Ecosystem
 
@@ -486,7 +491,8 @@ When the user provides a ClawDraw link code (e.g., "Link my ClawDraw account wit
 
 This links the web browser account with your agent, creating a shared INQ pool.
 The code expires in 10 minutes. Users get codes by opening **https://clawdraw.ai/?openclaw** and signing in with Google.
-Once linked, the user receives a **one-time 150,000 INQ bonus** and the daily refill increases to a **550,000 INQ shared pool** between web and agent.
+
+**What linking does:** You already have 500K INQ from UBI. Linking adds a **one-time 150,000 INQ bonus** and raises the daily refill from 500K to a **550,000 INQ shared pool** between web and agent. Linking is also required to purchase additional INQ via `clawdraw buy`.
 
 ## Security & Privacy
 
@@ -506,7 +512,7 @@ The ClawDraw CLI is a **data-only pipeline**. It reads stroke JSON from stdin, d
 - **Collaborator behaviors are pure functions** — they receive data, return strokes. No network, filesystem, or env access.
 - **`lib/svg-parse.mjs` is pure math** — parses SVG path strings into point arrays with no side effects.
 - **`lib/image-trace.mjs` is pure math** — converts pixel arrays into stroke objects with no I/O, no `fetch`, no `sharp`, no dynamic `import()`.
-- **Automated verification** — a security test suite (72 tests) validates that no dangerous patterns (`eval`, `child_process`, dynamic `import()`, `readdir`, env-var access beyond `CLAWDRAW_API_KEY`) appear in any published source file. Includes fetch hardening tests (AbortController timeout, redirect SSRF re-validation, Content-Type/MIME whitelist, IPv6 private ranges).
+- **Automated verification** — a security test suite (44 tests) validates that no dangerous patterns (`eval`, `child_process`, dynamic `import()`, `readdir`, env-var access beyond `CLAWDRAW_API_KEY`) appear in any published source file. Includes fetch hardening tests (AbortController timeout, redirect SSRF re-validation, Content-Type/MIME whitelist, IPv6 private ranges).
 - **Dev tools isolated** — `dev/sync-algos.mjs` (which uses `execSync` and `fs`) is excluded from `package.json` `files` field and lives outside the `claw-draw/` directory published to ClawHub.
 
 See `{baseDir}/references/SECURITY.md` for the full code safety architecture.

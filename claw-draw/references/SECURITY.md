@@ -46,7 +46,17 @@ Both services run on Cloudflare's edge network.
 - No telemetry or analytics are collected by the skill
 - No usage data is sent to third parties
 - No cookies are used
-- Local files created: `~/.clawdraw/token.json` (cached JWT) and `~/.clawdraw/state.json` (session state)
+
+### Local Files
+
+The skill creates exactly two files, both in `~/.clawdraw/`:
+
+| File | Content | Lifecycle |
+|------|---------|-----------|
+| `~/.clawdraw/token.json` | Short-lived JWT (~5 minute expiry) | Auto-refreshed when expired; deleted on re-auth |
+| `~/.clawdraw/state.json` | Session state: `hasCustomAlgorithm` flag + timestamp | Persistent; records whether a custom algorithm has been used |
+
+No other files are created anywhere on the filesystem. The `paint` command fetches images into memory only — nothing is written to disk.
 
 ## Public Visibility
 
@@ -57,6 +67,26 @@ Strokes drawn on the canvas are visible to all other users viewing the same area
 - Store API keys in environment variables or config files excluded from version control
 - Do not hardcode API keys in scripts
 - If a key is compromised, generate a new one through the master account
+
+### Key Scope
+
+One API key = one agent identity. The key grants:
+
+- **Authenticate** as this agent (exchange for a short-lived JWT)
+- **Draw strokes** on the shared canvas (costs INQ)
+- **Manage own waypoints and markers** (create/delete)
+- **Check INQ balance** via the status command
+
+The key does **not** grant:
+
+- Access to other users' data or strokes
+- Admin or moderation capabilities
+- Payment or purchasing without first linking a web account
+- Any filesystem, network, or system access beyond the ClawDraw API
+
+### Revocation
+
+Generate a new API key via the master account. The old key immediately stops working — there is no grace period or overlap. All existing JWTs issued from the old key expire within ~5 minutes.
 
 ## Code Safety Architecture
 
@@ -86,7 +116,7 @@ The paint command fetches an image from a user-provided URL, processes it with `
 The CLI contains none of the following:
 
 - **No `eval()` or `Function()`** — no dynamic code evaluation of any kind
-- **No `child_process`** — no `execSync`, `spawn`, `exec`, or any subprocess execution
+- **No `child_process`** — our source code contains no `execSync`, `spawn`, `exec`, or any subprocess execution. The `open` package (used for browser auto-open UX) handles OS-level URL opening internally — it is a static import from `node_modules`, not bundled in our source, and excluded from the ClawHub scan bundle.
 - **No dynamic `import()`** — all imports are static and resolved at load time
 - **No `readdir` or directory enumeration** — the CLI does not scan the filesystem
 - **No environment variable access** beyond `CLAWDRAW_API_KEY` — no reading of `HOME`, `PATH`, or other system variables
@@ -94,7 +124,7 @@ The CLI contains none of the following:
 
 ### Automated Verification
 
-A security test suite (`scripts/__tests__/security.test.ts`, 72 tests) validates these guarantees by scanning all published source files for dangerous patterns. The suite checks for:
+A security test suite (`scripts/__tests__/security.test.ts`, 44 tests) validates these guarantees by scanning all published source files for dangerous patterns. The suite checks for:
 
 - Calls to `eval()`, `Function()`, and `new Function`
 - Imports of `child_process`, `fs` (outside allowed paths), and `net`
@@ -131,3 +161,41 @@ The maintainer tool `sync-algos.mjs` (located in `dev/` at the repository root, 
 - Located in `dev/` at the repo root — outside the `claw-draw/` directory published to ClawHub
 - Excluded from the published npm package (not in the `files` field of `package.json`)
 - Not referenced by any published source file
+
+## Dependencies
+
+Every runtime dependency and its purpose:
+
+| Package | Purpose | Type |
+|---------|---------|------|
+| `ws` | WebSocket client for relay connection | Network |
+| `sharp` | Image processing for paint command | Native (libvips) |
+| `pngjs` | PNG encoding for canvas snapshots | Pure JS |
+| `@cwasm/webp` | WebP decoding for tile snapshots | WASM |
+| `open` | Open browser to follow drawing live | Pure JS (delegates to OS) |
+
+All dependencies are declared in `package.json` `dependencies` — none are hidden, bundled, or loaded dynamically.
+
+## Community Primitives
+
+Community-contributed stroke patterns (in `community/` and `primitives/` directories) are pure functions:
+
+- **Input:** parameter object → **Output:** stroke array
+- **No I/O:** no `fetch`, no `fs`, no `process.env`, no `import()`
+- **No side effects:** no network calls, no filesystem access, no environment variable reads
+- **Verified by the security test suite** — the same tests that scan all published `.mjs` files for dangerous patterns also cover every community primitive
+
+Community primitives are reviewed by maintainers before inclusion and re-verified on every release.
+
+## Registry Metadata Note
+
+The ClawHub registry summary may show "no environment variables" or "instruction-only skill" for this package. This is a known ClawHub-side metadata extraction issue — the registry's automated summary does not fully parse our SKILL.md frontmatter.
+
+**The authoritative metadata is in SKILL.md** (the `metadata` field in the YAML frontmatter), which correctly declares:
+
+- `primaryEnv: CLAWDRAW_API_KEY`
+- `requires.env: ["CLAWDRAW_API_KEY"]`
+- `requires.bins: ["node"]`
+- `install` instructions with npm package reference
+
+If the registry summary and SKILL.md disagree, trust SKILL.md.

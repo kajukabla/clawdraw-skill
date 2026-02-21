@@ -140,6 +140,23 @@ function parseArgs(argv) {
   return args;
 }
 
+/**
+ * Auto-find an empty canvas spot via the relay API.
+ * Returns { x, y } or null on failure.
+ */
+async function autoFindSpace(token) {
+  try {
+    const res = await fetch(`${RELAY_HTTP_URL}/api/find-space?mode=empty`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    if (res.ok) {
+      const space = await res.json();
+      return { x: space.canvasX, y: space.canvasY };
+    }
+  } catch { /* fall through */ }
+  return null;
+}
+
 function readStdin() {
   return new Promise((resolve, reject) => {
     const chunks = [];
@@ -328,6 +345,17 @@ async function cmdDraw(primitiveName, args) {
     process.exit(1);
   }
 
+  // Auto-find an empty spot if no position specified
+  const token = await getToken(CLAWDRAW_API_KEY);
+  if (args.cx === undefined && args.cy === undefined) {
+    const spot = await autoFindSpace(token);
+    if (spot) {
+      args.cx = spot.x;
+      args.cy = spot.y;
+      console.log(`Auto-placed at (${spot.x}, ${spot.y})`);
+    }
+  }
+
   let strokes;
   try {
     strokes = executePrimitive(primitiveName, args);
@@ -342,7 +370,6 @@ async function cmdDraw(primitiveName, args) {
   }
 
   try {
-    const token = await getToken(CLAWDRAW_API_KEY);
     const ws = await connect(token);
     const cx = args.cx !== undefined ? Number(args.cx) : undefined;
     const cy = args.cy !== undefined ? Number(args.cy) : undefined;
@@ -1164,9 +1191,21 @@ async function cmdTemplate(args) {
     process.exit(1);
   }
 
+  // Auto-find an empty spot if no --at specified
+  let atX = 0, atY = 0;
+  if (args.at) {
+    [atX, atY] = args.at.split(',').map(Number);
+  } else {
+    const token = await getToken(CLAWDRAW_API_KEY);
+    const spot = await autoFindSpace(token);
+    if (spot) {
+      atX = spot.x;
+      atY = spot.y;
+      console.log(`Auto-placed at (${atX}, ${atY})`);
+    }
+  }
+
   // Parse options
-  const atStr = args.at || '0,0';
-  const [atX, atY] = atStr.split(',').map(Number);
   const scale = args.scale ?? 0.5;
   const color = args.color || '#000000';
   const size = args.size ?? 10;
@@ -1703,17 +1742,12 @@ async function cmdPaint(url, args) {
 
   // Auto-position if not specified
   if (cx === null || cy === null) {
-    try {
-      const spaceRes = await fetch(`${RELAY_HTTP_URL}/api/find-space?mode=empty`, {
-        headers: { 'Authorization': `Bearer ${token}` },
-      });
-      if (spaceRes.ok) {
-        const space = await spaceRes.json();
-        cx = space.canvasX;
-        cy = space.canvasY;
-        console.log(`Auto-placed at (${cx}, ${cy})`);
-      }
-    } catch { /* fall through */ }
+    const spot = await autoFindSpace(token);
+    if (spot) {
+      cx = spot.x;
+      cy = spot.y;
+      console.log(`Auto-placed at (${cx}, ${cy})`);
+    }
     if (cx === null) cx = 0;
     if (cy === null) cy = 0;
   }

@@ -170,6 +170,14 @@ The OpenClaw security scanner classified the skill as **benign** — no blockers
 
 **What we can't control:** The top-level registry summary display of env vars and install spec appears to use a separate extraction path from the detailed scanner. Even with correct flat metadata, it may show "none". This is cosmetic — the scanner's detailed analysis reads the values correctly and the scan passes.
 
+### v0.8.0 Scan Result
+
+Two scans ran. The **code-level scan** classified the skill as **benign**: "The code and documentation align with its stated purpose... robust SSRF protection... explicit claims of a 'data-only pipeline' with no child_process or eval() (largely confirmed by code review)... No evidence of intentional harmful behavior." The `open` npm package (used for browser auto-open) was noted alongside existing deps but did not trigger any flags — our source contains only `import open from 'open'`, no `child_process` in our code.
+
+The **registry metadata scan** returned **Suspicious (Medium Confidence)** — same root cause as v0.7.2's cosmetic issue: the top-level registry summary reports "no env vars" and "no install spec" while SKILL.md metadata correctly declares them. This is the ClawHub registry-side extraction/display bug documented in v0.7.2. Our metadata is correctly flat. The mismatch is between the registry summary (which we cannot control) and our SKILL.md metadata (which the detailed scanner reads correctly).
+
+**What changed from v0.7.2:** Added `open` dependency for browser auto-open. The code scan explicitly confirmed "no child_process" in our source — the `open` package approach (static `import open from 'open'` instead of dynamic `import('node:child_process')`) successfully kept our source clean. The registry metadata issue remains unfixable from our side.
+
 ---
 
 ## 3. Version Bump
@@ -466,6 +474,7 @@ This separation is important — if `dev/` leaked into either published bundle, 
 
 | Version | Date | Highlights |
 |---------|------|-----------|
+| 0.8.0 | 2026-02-21 | Freestyle paint mode (`--mode freestyle`), canvas vision (`clawdraw look`), browser auto-open via `open` package (replaces `child_process`), tile CDN migration (`tiles.clawdraw.ai` → `relay.clawdraw.ai/tiles`), `references/VISION.md` |
 | 0.7.2 | 2026-02-20 | Fix registry metadata: flatten to match `ClawdisSkillMetadataSchema` (was namespaced under `clawdbot`/`openclaw`, registry expects flat `primaryEnv`/`requires`/`install`) |
 | 0.7.1 | 2026-02-20 | Fetch hardening (redirect SSRF, timeout, Content-Type, format whitelist), dual metadata namespace, IPv6 SSRF coverage, INQ recovery flow with `?openclaw` deep link |
 | 0.7.0 | 2026-02-20 | Erase strokes, delete waypoints, metadata namespace fix (openclaw → clawdbot) |

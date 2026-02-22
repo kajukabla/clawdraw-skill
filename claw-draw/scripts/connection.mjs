@@ -181,8 +181,16 @@ export function connect(token, opts = {}) {
   });
 }
 
-/** Maximum strokes per batch message. */
+/** Default strokes per batch message (used when no adaptive pacing). */
 export const BATCH_SIZE = 100;
+
+/** Ideal batch size for smooth cursor animation on the viewer side. */
+const ANIM_BATCH_SIZE = 2;
+/** Ideal inter-batch delay (ms) for smooth animation. */
+const ANIM_DELAY_MS = 100;
+/** Maximum wall-clock seconds for the entire send. Large stroke counts
+ *  auto-scale batch size upward to stay within this cap. */
+const MAX_DRAW_SECONDS = 20;
 
 /** Max retries per batch on RATE_LIMITED. */
 const BATCH_MAX_RETRIES = 5;
@@ -247,11 +255,16 @@ function waitForBatchResponse(ws) {
  * Always waits for ack/error per batch. On RATE_LIMITED, retries with
  * exponential backoff. On INSUFFICIENT_INQ, stops immediately.
  *
+ * By default, strokes are paced for animated viewing (small batches with
+ * inter-batch delay so the web client's cursor-tracing animation can play).
+ * Large stroke counts auto-scale batch size upward to keep total draw time
+ * within MAX_DRAW_SECONDS (20s).
+ *
  * @param {WebSocket} ws - Connected WebSocket
  * @param {Array} strokes - Array of stroke objects (from helpers.mjs makeStroke)
  * @param {object|number} [optsOrDelay={}] - Options object or legacy delayMs number
- * @param {number} [optsOrDelay.delayMs=50] - Milliseconds between successful batch sends
- * @param {number} [optsOrDelay.batchSize=100] - Max strokes per batch
+ * @param {number} [optsOrDelay.delayMs] - Milliseconds between successful batch sends (auto-computed if omitted)
+ * @param {number} [optsOrDelay.batchSize] - Max strokes per batch (auto-computed if omitted)
  * @param {boolean} [optsOrDelay.legacy=false] - Use single stroke.add per stroke
  * @returns {Promise<SendResult>}
  */
@@ -261,9 +274,33 @@ export async function sendStrokes(ws, strokes, optsOrDelay = {}) {
     ? { delayMs: optsOrDelay }
     : optsOrDelay;
 
-  const delayMs = opts.delayMs ?? 50;
-  const batchSize = opts.batchSize ?? BATCH_SIZE;
   const legacy = opts.legacy ?? false;
+
+  // Auto-compute pacing for animated drawing when not explicitly set.
+  // Ideal: batchSize=2, delay=100ms for smooth cursor animation.
+  // If that would exceed MAX_DRAW_SECONDS, scale batch size up to fit.
+  let batchSize, delayMs;
+  if (opts.batchSize !== undefined || opts.delayMs !== undefined) {
+    // Explicit values — use as-is
+    batchSize = opts.batchSize ?? BATCH_SIZE;
+    delayMs = opts.delayMs ?? 50;
+  } else {
+    // Auto-compute: start with ideal animation pacing
+    const idealBatches = Math.ceil(strokes.length / ANIM_BATCH_SIZE);
+    const idealTimeMs = idealBatches * ANIM_DELAY_MS;
+    const capMs = MAX_DRAW_SECONDS * 1000;
+
+    if (idealTimeMs <= capMs) {
+      // Fits within cap — use ideal pacing
+      batchSize = ANIM_BATCH_SIZE;
+      delayMs = ANIM_DELAY_MS;
+    } else {
+      // Too many strokes — scale up batch size, keep delay constant
+      const maxBatches = Math.floor(capMs / ANIM_DELAY_MS);
+      batchSize = Math.ceil(strokes.length / maxBatches);
+      delayMs = ANIM_DELAY_MS;
+    }
+  }
 
   const result = { sent: 0, acked: 0, rejected: 0, errors: [], strokesSent: 0, strokesAcked: 0 };
 
@@ -534,13 +571,13 @@ async function autoFindSpace(token) {
  * @param {object} [opts]
  * @param {number} [opts.cx] - Center X (computed from strokes if omitted)
  * @param {number} [opts.cy] - Center Y (computed from strokes if omitted)
- * @param {number} [opts.zoom=0.3] - Zoom level for links
+ * @param {number} [opts.zoom] - Zoom level for links (auto-computed from stroke bounding box if omitted)
  * @param {string} [opts.name] - Waypoint name
  * @param {string} [opts.description] - Waypoint description
  * @param {boolean} [opts.skipWaypoint=false] - Skip waypoint creation, chat post, and browser open
  * @returns {Promise<SendResult>}
  */
-export async function drawAndTrack(ws, strokes, { cx, cy, zoom = 0.3, name, description, skipWaypoint = false } = {}) {
+export async function drawAndTrack(ws, strokes, { cx, cy, zoom, name, description, skipWaypoint = false } = {}) {
   const drawingName = name || 'Drawing';
 
   // 1. Auto-placement: find empty spot if no position specified
@@ -570,6 +607,14 @@ export async function drawAndTrack(ws, strokes, { cx, cy, zoom = 0.3, name, desc
         pt.y += dy;
       }
     }
+  }
+
+  // Auto-compute zoom from bounding box if not explicitly set
+  if (zoom === undefined) {
+    const bboxW = bbox.maxX - bbox.minX;
+    const bboxH = bbox.maxY - bbox.minY;
+    const extent = Math.max(bboxW, bboxH, 50); // min 50 to avoid extreme zoom
+    zoom = Math.min(Math.max(600 / extent, 0.3), 5); // clamp 0.3–5.0
   }
 
   // 2. Update viewport/cursor to drawing center

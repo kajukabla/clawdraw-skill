@@ -181,9 +181,9 @@ All dependencies are declared in `package.json` `dependencies` — none are hidd
 
 This section directly addresses concerns raised by automated security scanners.
 
-### Manifest Mismatch (Known Registry Bug)
+### Manifest Metadata
 
-The ClawHub registry summary may report "instruction-only" despite SKILL.md correctly declaring an npm install spec with CLI binaries. This is a confirmed ClawHub-side extraction bug (documented since v0.7.2). The SKILL.md frontmatter is the authoritative source.
+The SKILL.md frontmatter metadata declares `primaryEnv: "CLAWDRAW_API_KEY"`, `requires.env: ["CLAWDRAW_API_KEY"]`, `requires.bins: ["node"]`, and an `install` spec with the npm package reference (`@clawdraw/skill`) and CLI binary (`clawdraw`). These are declared at both the top level and in the `openclaw` namespace.
 
 ### npm Native Dependencies
 
@@ -218,16 +218,13 @@ Community-contributed stroke patterns (in `community/` and `primitives/` directo
 
 Community primitives are reviewed by maintainers before inclusion and re-verified on every release.
 
-## Registry Metadata Note
+## Registry Metadata
 
-The ClawHub registry summary may show "no environment variables" or "instruction-only skill" for this package. This is a known ClawHub-side metadata extraction issue — the registry's automated summary does not fully parse our SKILL.md frontmatter.
+The authoritative metadata is in SKILL.md frontmatter (the `metadata` field in the YAML frontmatter), which declares:
 
-**The authoritative metadata is in SKILL.md** (the `metadata` field in the YAML frontmatter), which correctly declares:
+- `primaryEnv: "CLAWDRAW_API_KEY"` — optional override for file-based credentials
+- `requires.env: ["CLAWDRAW_API_KEY"]` — declared required environment variable
+- `requires.bins: ["node"]` — runtime binary dependency
+- `install` — npm package reference (`@clawdraw/skill`) with CLI binary (`clawdraw`)
 
-- `primaryEnv: CLAWDRAW_API_KEY` (optional override for file-based credentials)
-- `requires.bins: ["node"]`
-- `install` instructions with npm package reference and CLI binary
-
-The skill uses file-based credential storage (`~/.clawdraw/apikey.json` via `clawdraw setup`). `CLAWDRAW_API_KEY` is declared as `primaryEnv` in metadata and accepted as an optional override.
-
-If the registry summary and SKILL.md disagree, trust SKILL.md.
+The skill uses file-based credential storage (`~/.clawdraw/apikey.json` via `clawdraw setup`). `CLAWDRAW_API_KEY` is accepted as an optional override and is declared in both `primaryEnv` and `requires.env`.

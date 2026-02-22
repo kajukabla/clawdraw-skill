@@ -164,13 +164,12 @@ The OpenClaw security scanner classified the skill as **benign** — no blockers
 
 **Root cause of the multi-version metadata saga (v0.6.1 through v0.7.1):** Every attempt to fix registry metadata extraction used namespace wrapping (`openclaw`, `clawdbot`, or both). The actual schema is flat. The "use `metadata.openclaw` namespace" advice was our own hypothesis from v0.6.3 — no skill on ClawHub uses namespaced metadata. The schema definition lives at `ClawdisSkillMetadataSchema` in the clawhub CLI (`dist/schema/schemas.js`).
 
-**Three things that must all be true for registry metadata to work:**
+**Four things that must all be true for a clean scan (confirmed in v0.9.1):**
 
-1. **`files` key in frontmatter** — without it, ClawHub classifies the skill as "instruction-only" and skips metadata parsing entirely (fixed in v0.6.4)
-2. **Flat metadata structure** — `primaryEnv`, `requires`, `install` as top-level keys in the metadata JSON, no namespace wrapping (fixed in v0.7.2)
-3. **`requires.env` matches actual usage** — env vars declared in metadata must match what's accessed in code; undeclared env vars trigger suspicion
-
-**What we can't control:** The top-level registry summary display of env vars and install spec appears to use a separate extraction path from the detailed scanner. Even with correct flat metadata, it may show "none". This is cosmetic — the scanner's detailed analysis reads the values correctly and the scan passes.
+1. **`description` must be quoted** — unquoted colons in the value break strict YAML parsers, causing the entire frontmatter to fail before metadata is reached (fixed in v0.9.1)
+2. **`files` key in frontmatter** — without it, ClawHub classifies the skill as "instruction-only" and skips metadata parsing entirely (fixed in v0.6.4)
+3. **Flat metadata structure** — `primaryEnv`, `requires`, `install` as top-level keys in the metadata object (fixed in v0.7.2)
+4. **`openclaw`-namespaced metadata** — duplicate of flat keys under `metadata.openclaw` for the registry summary extractor (fixed in v0.9.1)
 
 ### v0.8.0 Scan Result
 
@@ -188,27 +187,41 @@ The registry metadata scan returned **Suspicious (High Confidence)** — same ro
 
 ### v0.8.2 Scan Result
 
-*(Pending — check ClawHub scanner after publish)*
+*(Not separately scanned — rolled into v0.8.3+)*
 
-**What changed from v0.8.1:** Added `scripts/roam.mjs` (autonomous roam mode), viewport follow-tracking fix in `connection.mjs`, browser-open TTL, viridis vortex scaling correction. `roam.mjs` uses the same patterns as existing scripts — `process.env.CLAWDRAW_API_KEY` only, no `child_process`, no `eval`, no dynamic `import()`, no `readdir`. The `__SKILL_TEST_RELAY_URL` env var is test-only and lives in `scripts/` (not `primitives/` or `lib/`), matching existing patterns.
+### v0.8.3–v0.9.0 Scan Results
 
-### v0.8.3 Scan Approach: `openclaw` namespace + scanner checklist sections
+Versions v0.8.3 through v0.9.0 continued to receive **Suspicious (High Confidence)** despite various metadata format attempts (belt-and-suspenders with `openclaw` namespace, `@security-manifest` headers, scanner transparency sections). The registry summary consistently reported "Required env vars: none" and "No install spec — instruction-only skill."
 
-**Hypothesis:** The registry summary extractor may use YAML-path lookup (e.g. `metadata.openclaw.primaryEnv`) rather than reading flat keys. Every previous version tested either flat-only (v0.7.2+) or namespaced-only (v0.6.3, v0.7.0–v0.7.1) — but no version tested `openclaw` namespace *with* the `files` key present. The `files` key was added in v0.6.4, and v0.6.3 (which used `openclaw`) predated it. After v0.6.4, all namespace tests used `clawdbot` (v0.7.0) or dual `clawdbot`+`openclaw` (v0.7.1), never `openclaw` alone. Additionally, web research found the official ClawHub docs show `metadata.openclaw` as the canonical namespace.
+**Root cause identified in v0.9.1:** The `description` field contained unquoted colons (e.g. `5 artistic modes: pointillist`). Strict YAML parsers interpret `: ` as a mapping indicator, causing the entire frontmatter to fail parsing. When the parser chokes on the description, it never reaches the metadata at all — explaining why every metadata format we tried (flat, namespaced, dual, inline JSON) failed identically.
 
-**Changes in v0.8.3:**
+### v0.9.1 Scan Result
 
-1. **Belt-and-suspenders metadata:** Keep flat keys (proven for detailed scanner) AND add `openclaw`-namespaced duplicate (untested combination targeting summary extractor). Removed `category: art` (not in schema). Added `always: false` at both levels.
-2. **External Endpoints table** in SKILL.md — scanner checklist item listing all outbound connections with protocol, purpose, and data sent.
-3. **Model Invocation Notice** in SKILL.md — confirms opt-in only, no auto-execute.
-4. **Trust Statement** in SKILL.md — summarizes data handling and privacy posture.
-5. **`@security-manifest` headers** on all 6 published scripts — structured comments declaring env vars, endpoints, files, and exec usage for automated scanner verification.
-6. **Paint mode selection bias fix** — routing examples no longer hardcode vangogh; agents now choose mode from the table based on subject.
+The OpenClaw scanner classified the skill as **Benign (High Confidence)**. This is the first clean scan since v0.7.2 (which got "benign" from the detailed scanner but "Suspicious" from the registry summary).
 
-**Expected outcomes:**
-- If summary now shows env vars/install spec → `openclaw` namespace was the missing piece
-- If summary still shows "none" → confirmed as registry-side extraction bug, unfixable from our code. Document and move on.
-- Scanner checklist sections (endpoints, invocation, trust) should reduce informational warnings regardless
+**Verdict:** Benign (high confidence) — "The skill's requirements, runtime instructions, and install steps are coherent with a CLI that draws on ClawDraw's multiplayer canvas and do not request unrelated credentials or system access."
+
+**Scanner findings (all passing):**
+
+- **Purpose & Capability** — Name, description, required binary (node), primaryEnv (CLAWDRAW_API_KEY), CLI entrypoint and listed primitives/WebSocket/painting features align with a canvas-drawing skill. Requested items are reasonable for this purpose.
+- **Instruction Scope** — SKILL.md instructs agent to wait for explicit draw request, report costs, and use the CLAWDRAW API key or saved `~/.clawdraw/apikey.json`. Instructions reference only canvas-related operations.
+- **Install Mechanism** (informational) — Install is via npm package (`@clawdraw/skill`), expected for a Node CLI. Lists native/image-processing and networking deps (sharp, pngjs, ws, @cwasm/webp, open). Proportionate to image processing and WebSocket connections but carries usual npm risk surface.
+- **Credentials** — Only CLAWDRAW_API_KEY is required and declared as primaryEnv. No unrelated secrets or cloud credentials requested.
+- **Persistence & Privilege** — Does not set `always: true`, does not request system-wide privileges. Writes agent auth to `~/.clawdraw/` only.
+
+**What fixed it (two changes, both required):**
+
+1. **Quoted description field** — Wrapping the `description` value in double quotes (`description: "Create algorithmic art..."`) prevents strict YAML parsers from failing on embedded colons. This was the primary blocker — without it, the parser never reached the metadata.
+2. **`openclaw`-namespaced metadata** — Adding `metadata.openclaw.primaryEnv`, `metadata.openclaw.requires`, and `metadata.openclaw.install` (duplicating the flat keys) matches the pattern used by top-rated skills on ClawHub. Belt-and-suspenders: flat keys serve the detailed scanner, `openclaw` namespace serves the registry summary extractor.
+
+**Lesson learned:** When the registry summary reports "none" for metadata fields despite correct values, the problem may not be in the metadata format itself — it may be that the YAML parser fails *before* reaching metadata. Always validate that the entire frontmatter parses cleanly with a strict YAML parser (e.g. `js-yaml`).
+
+**Four things that must all be true for a clean scan:**
+
+1. **`description` must be quoted** — any colons in the value will break strict YAML parsers
+2. **`files` key in frontmatter** — without it, ClawHub classifies as "instruction-only" and skips metadata
+3. **Flat metadata keys** — `primaryEnv`, `requires`, `install` as top-level keys in metadata (for detailed scanner)
+4. **`openclaw`-namespaced metadata** — duplicate of flat keys under `metadata.openclaw` (for registry summary extractor)
 
 ---
 

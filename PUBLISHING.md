@@ -370,7 +370,7 @@ Users who install via `https://clawdraw.ai/skill.md` (the raw URL method) get a 
 **Fix:** Tell the user to install properly via ClawHub:
 
 ```bash
-clawhub install clawdraw
+clawhub install clawdraw --workdir ~/.openclaw
 ```
 
 ### 2. Hosted skill.md is out of date
@@ -393,7 +393,7 @@ ls ./skills/clawdraw/
 ls ~/.openclaw/skills/clawdraw/
 ```
 
-Remove any stale copies, then `clawhub install clawdraw` to get the latest via ClawHub.
+Remove any stale copies, then `clawhub install clawdraw --workdir ~/.openclaw` to get the latest via ClawHub.
 
 ---
 
@@ -437,22 +437,47 @@ git push
 ```yaml
 ---
 name: clawdraw
-version: 0.9.0
-description: One-line description (used by OpenClaw for skill matching)
+version: 0.9.1
+description: "One-line description (used by OpenClaw for skill matching)"
 user-invocable: true
 homepage: https://clawdraw.ai
 emoji: 🎨
 files: ["scripts/clawdraw.mjs","scripts/auth.mjs","scripts/connection.mjs","scripts/snapshot.mjs","scripts/symmetry.mjs","scripts/roam.mjs","primitives/","lib/","templates/","community/"]
-metadata: {"emoji":"🎨","always":false,"primaryEnv":"CLAWDRAW_API_KEY","requires":{"bins":["node"],"env":["CLAWDRAW_API_KEY"]},"install":[{"id":"npm","kind":"node","package":"@clawdraw/skill","bins":["clawdraw"],"label":"Install ClawDraw CLI (npm)"}],"openclaw":{"always":false,"primaryEnv":"CLAWDRAW_API_KEY","requires":{"bins":["node"],"env":["CLAWDRAW_API_KEY"]},"install":[{"id":"npm","kind":"node","package":"@clawdraw/skill","bins":["clawdraw"],"label":"Install ClawDraw CLI (npm)"}]}}
+metadata:
+  emoji: "🎨"
+  always: false
+  primaryEnv: CLAWDRAW_API_KEY
+  requires:
+    bins:
+      - node
+    env:
+      - CLAWDRAW_API_KEY
+  install:
+    - kind: node
+      package: "@clawdraw/skill"
+      bins:
+        - clawdraw
+  openclaw:
+    primaryEnv: CLAWDRAW_API_KEY
+    requires:
+      bins:
+        - node
+      env:
+        - CLAWDRAW_API_KEY
+    install:
+      - kind: node
+        package: "@clawdraw/skill"
+        bins:
+          - clawdraw
 ---
 ```
 
 Key fields:
 - `name` — skill slug, must match ClawHub slug
 - `version` — must match `package.json` version
-- `description` — single line, OpenClaw parser only supports single-line frontmatter
+- `description` — single line, **quoted** (double quotes) to prevent strict YAML parsers from choking on embedded colons. OpenClaw parser only supports single-line frontmatter
 - `files` — JSON array of script/code files and directories the skill bundles. **Required** for any skill that includes executable scripts. Without this key, ClawHub classifies the skill as "instruction-only" (just a SKILL.md with instructions, no scripts) and skips parsing `requires`/`install` from metadata entirely. List individual script files and directories that contain code.
-- `metadata` — single-line JSON object with **flat** keys matching `ClawdisSkillMetadataSchema` PLUS an `openclaw` namespace duplicate (belt-and-suspenders). The flat keys are proven to work with the detailed scanner. The `openclaw`-namespaced duplicate targets the summary extractor, which may use YAML-path lookup (e.g. `metadata.openclaw.primaryEnv`). Also includes `always: false` as an explicit trust signal. The `requires.env` array declares which env vars the skill needs (the scanner checks that you don't access anything else). The `install` array declares install methods shown in the ClawHub UI. **Removed `category: art`** — not in `ClawdisSkillMetadataSchema`, could confuse the parser.
+- `metadata` — multi-line YAML with both **flat** keys (matching `ClawdisSkillMetadataSchema`) and an **`openclaw`-namespaced** duplicate (matching the canonical registry namespace used by top-rated skills). This belt-and-suspenders approach targets both the detailed scanner (which reads flat keys) and the registry summary extractor (which may read `metadata.openclaw.*`). Previous versions used single-line inline JSON (`metadata: {"emoji":"🎨",...}`), but the registry summary extractor consistently failed to parse nested JSON-in-YAML — reporting "Required env vars: none" and "No install spec" despite correct values. Multi-line YAML is standard, unambiguous, and eliminates the inline JSON parsing failure mode. Non-schema fields (`id`, `label`) are omitted from `install` entries to avoid strict validation rejection. The `requires.env` array declares which env vars the skill needs (the scanner checks that you don't access anything else). The `install` array declares install methods shown in the ClawHub UI.
 - `user-invocable: true` — skill can be called directly by users (not just by other skills)
 
 ---
@@ -498,7 +523,7 @@ This separation is important — if `dev/` leaked into either published bundle, 
 1. **Dev tools** (`sync-algos.mjs`, anything with `execSync`/`child_process`/`readdir`) must live **outside** `claw-draw/` entirely (e.g., repo root `dev/`)
 2. **Test files** (`*.test.ts`, `__tests__/`) should be excluded via `.clawhubignore`
 3. **Build artifacts** (`node_modules/`, `package-lock.json`, `*.tgz`) should be in `.clawhubignore`
-4. **Metadata** — `requires`, `install`, and `primaryEnv` in SKILL.md frontmatter JSON must be **flat** (top-level keys in the metadata object), matching `ClawdisSkillMetadataSchema`. As of v0.8.3 we also include an `openclaw`-namespaced duplicate (belt-and-suspenders) — this targets the registry summary extractor which may use YAML-path lookup. The flat keys serve the detailed scanner; the `openclaw` namespace serves the summary.
+4. **Metadata** — `requires`, `install`, and `primaryEnv` in SKILL.md frontmatter must appear as both **flat** top-level keys (matching `ClawdisSkillMetadataSchema`) and under the **`openclaw`** namespace (matching the canonical registry namespace). As of v0.9.1, metadata uses **multi-line YAML** instead of single-line inline JSON — the registry summary extractor failed to parse inline JSON-in-YAML across v0.6.3–v0.9.0. The `description` field must be **quoted** (double quotes) to prevent strict YAML parsers from failing on embedded colons. Non-schema fields (`id`, `label`) are omitted from `install` entries.
 5. **Files declaration** — SKILL.md frontmatter must include a `files` key listing executable scripts and code directories. Without it, ClawHub classifies the skill as "instruction-only" and skips parsing `requires`/`install` from metadata entirely — even if the metadata is correct.
 
 ---
@@ -507,6 +532,7 @@ This separation is important — if `dev/` leaked into either published bundle, 
 
 | Version | Date | Highlights |
 |---------|------|-----------|
+| 0.9.1 | 2026-02-21 | Quote description field (fix strict YAML parser choking on embedded colons), add `openclaw`-namespaced metadata duplicate (belt-and-suspenders targeting registry summary extractor), convert metadata to multi-line YAML, strip non-schema fields from install, add install mechanism and community primitives transparency notes to SECURITY.md |
 | 0.9.0 | 2026-02-21 | Add `--no-waypoint` flag for single waypoint per composition; restructure agent workflow so first draw creates waypoint, subsequent draws reuse coordinates silently |
 | 0.8.9 | 2026-02-21 | Fix stale SECURITY.md references: update "Manifest Mismatch" and "Registry Metadata Note" sections to reflect v0.8.8 `primaryEnv` re-declaration |
 | 0.8.8 | 2026-02-21 | Re-declare `primaryEnv: CLAWDRAW_API_KEY` in metadata, reduce env var prominence in SKILL.md and SECURITY.md to address scanner "undeclared credential" flags |

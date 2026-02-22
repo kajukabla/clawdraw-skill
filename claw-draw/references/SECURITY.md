@@ -144,6 +144,10 @@ The pattern `<generator> | clawdraw stroke --stdin` is a standard Unix data pipe
 
 The CLI has no knowledge of the data source — it cannot inspect, modify, or evaluate the process on the other side of the pipe. This is identical to patterns like `curl | jq` or `echo | wc`.
 
+### Install Mechanism (npm Native Compilation)
+
+Installing via `npm install` will compile native dependencies — specifically `sharp` (libvips) for image processing. This is expected behavior: `sharp` requires platform-specific binaries to decode and resize images efficiently. The compilation happens during `npm install` through standard `node-gyp` / prebuild tooling and produces `.node` addon files. No custom build scripts, postinstall hooks, or compilation outside of `sharp`'s own build process are involved.
+
 ### Sharp (libvips) Native Dependency
 
 The `sharp` package includes native `.node` binaries (compiled libvips). VirusTotal and some scanners flag any package containing native addons because compiled binaries cannot be statically analyzed for malicious behavior. This is a known false-positive pattern for Node.js packages with native dependencies.
@@ -183,7 +187,7 @@ This section directly addresses concerns raised by automated security scanners.
 
 ### Manifest Metadata
 
-The SKILL.md frontmatter metadata declares `primaryEnv: "CLAWDRAW_API_KEY"`, `requires.env: ["CLAWDRAW_API_KEY"]`, `requires.bins: ["node"]`, and an `install` spec with the npm package reference (`@clawdraw/skill`) and CLI binary (`clawdraw`). These are declared at both the top level and in the `openclaw` namespace.
+The SKILL.md frontmatter metadata uses multi-line YAML with both flat keys (matching `ClawdisSkillMetadataSchema`) and an `openclaw`-namespaced duplicate (matching the canonical registry namespace). Both declare `primaryEnv: CLAWDRAW_API_KEY`, `requires.env: [CLAWDRAW_API_KEY]`, `requires.bins: [node]`, and an `install` spec with the npm package reference (`@clawdraw/skill`) and CLI binary (`clawdraw`). The description field is quoted to prevent strict YAML parsers from choking on embedded colons.
 
 ### npm Native Dependencies
 
@@ -209,22 +213,21 @@ All files reside in `~/.clawdraw/` (directory `0o700`). No other directories are
 
 ## Community Primitives
 
-Community-contributed stroke patterns (in `community/` and `primitives/` directories) are pure functions:
+Community-contributed stroke patterns (in `community/` and `primitives/` directories) execute as local JavaScript within the skill's Node.js process. They are pure functions:
 
 - **Input:** parameter object → **Output:** stroke array
 - **No I/O:** no `fetch`, no `fs`, no `process.env`, no `import()`
 - **No side effects:** no network calls, no filesystem access, no environment variable reads
 - **Verified by the security test suite** — the same tests that scan all published `.mjs` files for dangerous patterns also cover every community primitive
-
-Community primitives are reviewed by maintainers before inclusion and re-verified on every release.
+- **Reviewed before inclusion** — all community contributions are reviewed by maintainers for correctness, safety, and compliance with the isolation constraints above before being merged into a release
 
 ## Registry Metadata
 
-The authoritative metadata is in SKILL.md frontmatter (the `metadata` field in the YAML frontmatter), which declares:
+The authoritative metadata is in SKILL.md frontmatter (the `metadata` field), expressed as multi-line YAML with both flat keys (matching `ClawdisSkillMetadataSchema`) and an `openclaw`-namespaced duplicate (matching the canonical registry namespace). Both levels declare:
 
-- `primaryEnv: "CLAWDRAW_API_KEY"` — optional override for file-based credentials
-- `requires.env: ["CLAWDRAW_API_KEY"]` — declared required environment variable
-- `requires.bins: ["node"]` — runtime binary dependency
+- `primaryEnv: CLAWDRAW_API_KEY` — optional override for file-based credentials
+- `requires.env: [CLAWDRAW_API_KEY]` — declared required environment variable
+- `requires.bins: [node]` — runtime binary dependency
 - `install` — npm package reference (`@clawdraw/skill`) with CLI binary (`clawdraw`)
 
 The skill uses file-based credential storage (`~/.clawdraw/apikey.json` via `clawdraw setup`). `CLAWDRAW_API_KEY` is accepted as an optional override and is declared in both `primaryEnv` and `requires.env`.

@@ -483,6 +483,47 @@ async function cmdCompose(args) {
       } catch (err) {
         console.error(`Error generating ${prim.name}:`, err.message);
       }
+    } else if (prim.type === 'template') {
+      // Lazy-load shapes.json on first template encountered
+      if (!cmdCompose._shapesCache) {
+        const shapesPath = new URL('../templates/shapes.json', import.meta.url).pathname;
+        try {
+          cmdCompose._shapesCache = JSON.parse(fs.readFileSync(shapesPath, 'utf8'));
+        } catch (err) {
+          console.error('Failed to load template library:', err.message);
+          continue;
+        }
+      }
+      const t = cmdCompose._shapesCache.templates[prim.name];
+      if (!t) {
+        console.error(`Template "${prim.name}" not found.`);
+        continue;
+      }
+      const tArgs = prim.args || {};
+      const scale = tArgs.scale ?? 0.5;
+      const color = tArgs.color || '#000000';
+      const size = tArgs.size ?? 10;
+      const rotation = tArgs.rotation ?? 0;
+      const opacity = tArgs.opacity ?? 1;
+
+      for (const pathD of t.paths) {
+        const subpaths = parseSvgPathMulti(pathD, { scale, translate: { x: 0, y: 0 } });
+        for (const points of subpaths) {
+          if (points.length < 2) continue;
+          if (rotation !== 0) {
+            const rad = rotation * Math.PI / 180;
+            const cos = Math.cos(rad);
+            const sin = Math.sin(rad);
+            for (const p of points) {
+              const dx = p.x;
+              const dy = p.y;
+              p.x = dx * cos - dy * sin;
+              p.y = dx * sin + dy * cos;
+            }
+          }
+          allStrokes.push(makeStroke(points, color, size, opacity, 'flat'));
+        }
+      }
     }
   }
 

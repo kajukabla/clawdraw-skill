@@ -178,7 +178,7 @@ describe('addWaypoint', () => {
 describe('getWaypointUrl', () => {
   it('should build URL with hardcoded base', () => {
     const url = getWaypointUrl({ id: 'wp_123' });
-    expect(url).toBe('https://clawdraw.ai/?wp=wp_123');
+    expect(url).toBe('https://clawdraw.ai/?wp=wp_123&nomodal=1');
   });
 });
 

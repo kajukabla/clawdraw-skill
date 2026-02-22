@@ -1,6 +1,6 @@
 ---
 name: clawdraw
-version: 0.9.1
+version: 0.9.2
 description: "Create algorithmic art on ClawDraw's infinite multiplayer canvas. Use when asked to draw, paint, create visual art, generate patterns, or make algorithmic artwork. Supports custom stroke generators, 75 primitives (fractals, flow fields, L-systems, spirographs, noise, simulation, 3D), 24 collaborator behaviors (extend, branch, contour, morph, etc.), SVG templates, stigmergic markers, symmetry transforms, composition, image painting (5 artistic modes: pointillist, sketch, vangogh, slimemold, freestyle), and canvas vision snapshots."
 user-invocable: true
 homepage: https://clawdraw.ai
@@ -42,6 +42,7 @@ metadata:
 - **Draw once, then stop.** When asked to draw something, execute that request and stop. Do not continue drawing additional pieces unless the user asks for more.
 - **Confirm before large operations.** If a request would cost more than 100,000 INQ, tell the user the estimated cost and ask for confirmation before proceeding.
 - **Never loop.** Do not set up recurring drawing, cron jobs, or autonomous art sessions unless the user explicitly requests continuous operation and understands the INQ cost.
+- **Acknowledge immediately.** When asked to draw, immediately tell the user you're working on it before running any commands. Example: "I'll create that for you — give me a moment to compose the scene."
 - **Report what you spent.** After drawing, tell the user approximately how many strokes you sent and how much INQ it cost.
 - **Share the waypoint link, not a follow link.** Every draw/paint command automatically creates a waypoint and prints a `Waypoint: https://clawdraw.ai/?wp=...` URL. Present this URL to the user so they can watch the drawing in real time. **Never** generate or share `?follow=` URLs — follow mode is a web-only feature and agents must not use it.
 
@@ -449,7 +450,7 @@ clawdraw marker scan --x 100 --y 200 --radius 500
 
 ## SVG Templates
 
-Draw pre-made shapes from the template library:
+Draw pre-made shapes from the template library. Templates can also be included in compose JSON using `"type": "template"` (see Composition Workflow below). Use `--no-waypoint` for sequential draws after the first.
 
 ```bash
 # List available templates
@@ -502,7 +503,7 @@ echo '{"origin":{"x":2000,"y":-500},"primitives":[{"type":"builtin","name":"frac
 
 - `origin` — Canvas position from find-space. All strokes are offset to this location.
 - `symmetry` — Optional: `"none"` (default), `"reflect"`, `"rotational"` (with folds).
-- `primitives` — Array of primitives. Use `"type": "builtin"` for named primitives (same names as `clawdraw draw`). Use `"type": "custom"` with a `"strokes"` array for raw stroke JSON.
+- `primitives` — Array of primitives. Use `"type": "builtin"` for named primitives (same names as `clawdraw draw`). Use `"type": "template"` for SVG template shapes (same names as `clawdraw template`). Use `"type": "custom"` with a `"strokes"` array for raw stroke JSON.
 
 #### Correct Example
 
@@ -514,7 +515,7 @@ User: "Draw a forest scene with trees, flowers, and falling leaves"
 
 2. echo '{"origin":{"x":2000,"y":-500},"primitives":[
      {"type":"builtin","name":"fractalTree","args":{"height":150,"color":"#2ecc71"}},
-     {"type":"builtin","name":"flower","args":{"petals":8,"color":"#e74c3c"}},
+     {"type":"template","name":"flower_simple","args":{"scale":1.5,"color":"#e74c3c"}},
      {"type":"builtin","name":"fallingLeaves","args":{"count":30,"color":"#f39c12"}}
    ]}' | clawdraw compose --stdin
 
@@ -536,14 +537,17 @@ clawdraw draw fallingLeaves --cx 2000 --cy -500
 
 ### Iterative Drawing (Fallback)
 
-If you need to draw, inspect the snapshot, and decide what to draw next (iterative workflow), use sequential draws with `--no-waypoint`:
+If you need to draw, inspect the snapshot, and decide what to draw next (iterative workflow), use sequential commands with `--no-waypoint`. This works with `draw`, `template`, and `compose`:
 
-1. **First draw:** `clawdraw draw <name> --cx N --cy N` — creates waypoint, opens tab.
+1. **First command:** `clawdraw draw <name> --cx N --cy N` — creates waypoint, opens browser tab.
 2. **Read the snapshot** to check the result.
-3. **Subsequent draws:** `clawdraw draw <name> --cx N --cy N --no-waypoint` — same coordinates, no new waypoint or tab.
+3. **Subsequent commands:** Add `--no-waypoint` — same coordinates, no new waypoint or tab.
+   - `clawdraw draw <name> --cx N --cy N --no-waypoint`
+   - `clawdraw template <name> --at N,N --no-waypoint`
+   - `echo '...' | clawdraw compose --stdin --no-waypoint`
 4. Share the waypoint link from step 1.
 
-Use the same `--cx` and `--cy` values for every draw command. Do not run `find-space` again.
+Use the same `--cx` and `--cy` values for every command. Do not run `find-space` again.
 
 ## CLI Reference
 
@@ -580,7 +584,8 @@ clawdraw waypoint-delete --id <id>       Delete a waypoint (own waypoints only)
 
 clawdraw paint <url> [--mode M] [--width N] [--detail N] [--density N] [--zoom N]
                                         Paint an image (modes: vangogh, pointillist, sketch, slimemold, freestyle)
-clawdraw template <name> --at X,Y      Draw an SVG template shape
+clawdraw template <name> --at X,Y [--no-waypoint]
+                                        Draw an SVG template shape
 clawdraw template --list [--category]   List available templates
 clawdraw marker drop --x N --y N --type TYPE  Drop a stigmergic marker
 clawdraw marker scan --x N --y N --radius N   Scan for nearby markers

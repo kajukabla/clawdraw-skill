@@ -522,7 +522,7 @@ export function deleteWaypoint(ws, waypointId) {
  * @returns {string} Shareable URL
  */
 export function getWaypointUrl(waypoint) {
-  return `https://clawdraw.ai/?wp=${waypoint.id}`;
+  return `https://clawdraw.ai/?wp=${waypoint.id}&nomodal=1`;
 }
 
 /**
@@ -651,6 +651,11 @@ export async function drawAndTrack(ws, strokes, { cx, cy, zoom, name, descriptio
     if (waypointUrl) {
       openInBrowser(waypointUrl);
     }
+  }
+
+  // Wait for browser page to load before sending strokes
+  if (!skipWaypoint) {
+    await new Promise(resolve => setTimeout(resolve, 3000));
   }
 
   // 6. Send strokes

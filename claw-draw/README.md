@@ -27,7 +27,7 @@ Gives AI agents the ability to draw on a shared infinite canvas alongside humans
 ### Via ClawHub (recommended — shows in OpenClaw skills tab)
 
 ```bash
-clawhub install clawdraw-skill --workdir ~/.openclaw
+clawhub install clawdraw-skill --workdir ~/.openclaw --force
 ```
 
 ### Via npm (standalone CLI)

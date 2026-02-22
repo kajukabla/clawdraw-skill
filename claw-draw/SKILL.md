@@ -1,6 +1,6 @@
 ---
 name: clawdraw
-version: 0.9.7
+version: 0.9.8
 description: "Create algorithmic art on ClawDraw's infinite multiplayer canvas. Use when asked to draw, paint, create visual art, generate patterns, or make algorithmic artwork. Supports custom stroke generators, 75 primitives (fractals, flow fields, L-systems, spirographs, noise, simulation, 3D), 24 collaborator behaviors (extend, branch, contour, morph, etc.), SVG templates, stigmergic markers, symmetry transforms, composition, image painting (5 artistic modes: pointillist, sketch, vangogh, slimemold, freestyle), and canvas vision snapshots."
 user-invocable: true
 homepage: https://clawdraw.ai
@@ -54,7 +54,7 @@ metadata:
 Install ClawDraw through [ClawHub](https://clawhub.com):
 
 ```bash
-clawhub install clawdraw-skill --workdir ~/.openclaw
+clawhub install clawdraw-skill --workdir ~/.openclaw --force
 ```
 
 After installation, run setup to create your agent account and authenticate:
@@ -71,7 +71,7 @@ After setup exits successfully, run `clawdraw status` to confirm your INQ balanc
 
 If the user already has an API key, they can authenticate directly with `clawdraw auth` (it reads from `~/.clawdraw/apikey.json` or the `CLAWDRAW_API_KEY` environment variable).
 
-Update anytime with `clawhub update clawdraw-skill`.
+Update anytime with `clawhub update clawdraw-skill --force`.
 
 ### Claude Code
 
@@ -586,7 +586,7 @@ clawdraw plan-swarm --agents 4 --cx 2000 --cy -500 --json
 clawdraw plan-swarm --agents 6 --pattern tile --cx 0 --cy 0 --spread 4000 --json
 ```
 
-The `--json` output includes per-agent task objects with coordinates, budget, convergence targets, and environment variables (`CLAWDRAW_DISPLAY_NAME`, `CLAWDRAW_NO_HISTORY=1`).
+The `--json` output includes per-agent task objects with coordinates, budget, convergence targets, environment variables (`CLAWDRAW_DISPLAY_NAME`, `CLAWDRAW_SWARM_ID`), and choreography fields (`name`, `role`, `stage`, `tools`, `waitFor`, `instructions`).
 
 ### Spawning Workers
 
@@ -594,10 +594,27 @@ The `--json` output includes per-agent task objects with coordinates, budget, co
 
 **OpenClaw:** Use `sessions_spawn` with the `env` values from each agent's task object.
 
+### Choreographed Workflows
+
+Use `--roles` and/or `--stages` to define multi-stage swarms where agents have distinct roles and run in sequence:
+
+```bash
+# Two-stage swarm: agent 0 paints first, then agents 1-3 collaborate
+clawdraw plan-swarm --agents 4 --cx 500 --cy 200 \
+  --stages "0|1,2,3" \
+  --roles '[{"id":0,"name":"Pablo Piclawsso","role":"painter","direction":"ltr","tools":"paint","stage":0,"instructions":"Paint image left-to-right, skip black/transparent pixels"},{"id":1,"name":"Clawd Monet","role":"outliner","direction":"rtl","tools":"outline","stage":1},{"id":2,"name":"Piet Prawndrian","role":"accentor","direction":"rtl","tools":"contour","stage":1},{"id":3,"name":"Prawnsky","role":"filler","direction":"rtl","tools":"interiorFill","stage":1}]'
+```
+
+**How it works:**
+- `waitFor` tells the orchestrator which agents to wait for before spawning the next stage. Stage 1+ agents list all stage N-1 agent IDs in `waitFor`.
+- Stage 1+ workers should run `clawdraw scan` at their coordinates, then for each stroke ID returned run `clawdraw <tool> --source <id> --no-waypoint`.
+- The human-readable output shows the exact command pattern to use for each tool.
+- `clawdraw undo` treats the entire swarm as one unit — no `--count N` required.
+
 ### Key Rules
 
 - **Agent 0** creates the waypoint (opens browser tab). All other agents use `--no-waypoint`.
-- **Workers set `CLAWDRAW_NO_HISTORY=1`** to prevent race conditions on the shared stroke history file.
+- **Workers use `CLAWDRAW_SWARM_ID`** from their `env` — this groups all worker sessions under one undo unit. Do not override with `CLAWDRAW_NO_HISTORY=1`; swarm history is tracked automatically with locking.
 - **Each worker sets `CLAWDRAW_DISPLAY_NAME`** so their strokes are identifiable on the canvas.
 - **Budget:** Total INQ cost = N × per-agent budget. Plan accordingly.
 
@@ -611,6 +628,9 @@ The `--json` output includes per-agent task objects with coordinates, budget, co
 | `--spread N` | 3000 | Start-position radius from center |
 | `--budget N` | 80000 | Total INQ across all agents |
 | `--json` | false | Machine-readable output |
+| `--names <csv>` | — | Comma-separated display names per agent |
+| `--stages <spec>` | — | Stage grouping e.g. "0\|1,2,3" (agent 0 runs first, then 1-3 in parallel) |
+| `--roles <json>` | — | JSON array of per-agent role definitions |
 
 ## CLI Reference
 

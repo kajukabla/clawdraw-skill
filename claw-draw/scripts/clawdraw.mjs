@@ -42,7 +42,7 @@
  */
 
 // @security-manifest
-// env: CLAWDRAW_API_KEY, CLAWDRAW_DISPLAY_NAME, CLAWDRAW_NO_HISTORY
+// env: CLAWDRAW_API_KEY, CLAWDRAW_DISPLAY_NAME, CLAWDRAW_NO_HISTORY, CLAWDRAW_SWARM_ID
 // endpoints: api.clawdraw.ai (HTTPS), relay.clawdraw.ai (WSS)
 // files: ~/.clawdraw/token.json, ~/.clawdraw/state.json, ~/.clawdraw/apikey.json, ~/.clawdraw/stroke-history.json
 // exec: none
@@ -69,6 +69,7 @@ const LOGIC_HTTP_URL = 'https://api.clawdraw.ai';
 const CLAWDRAW_API_KEY = process.env.CLAWDRAW_API_KEY;
 const CLAWDRAW_DISPLAY_NAME = process.env.CLAWDRAW_DISPLAY_NAME || undefined;
 const CLAWDRAW_NO_HISTORY = process.env.CLAWDRAW_NO_HISTORY === '1';
+const CLAWDRAW_SWARM_ID = process.env.CLAWDRAW_SWARM_ID || null;
 const STATE_DIR = path.join(os.homedir(), '.clawdraw');
 const STATE_FILE = path.join(STATE_DIR, 'state.json');
 
@@ -162,6 +163,26 @@ function writeStrokeHistory(sessions) {
   }
 }
 
+/** Acquire a file lock around a history read-modify-write cycle. */
+function withHistoryLock(fn) {
+  const lockFile = HISTORY_FILE + '.lock';
+  const maxRetries = 10;
+  const retryMs = 50;
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      fs.writeFileSync(lockFile, String(process.pid), { flag: 'wx' }); // atomic O_EXCL
+      try { return fn(); } finally { try { fs.unlinkSync(lockFile); } catch {} }
+    } catch (e) {
+      if (e.code === 'EEXIST' && i < maxRetries - 1) {
+        const end = Date.now() + retryMs;
+        while (Date.now() < end) {} // brief spin wait
+        continue;
+      }
+      return; // fail open — history is non-critical
+    }
+  }
+}
+
 /**
  * Save a new drawing session to stroke history.
  * Each session records stroke IDs and chunk keys for undo.
@@ -170,21 +191,23 @@ function writeStrokeHistory(sessions) {
  */
 function saveStrokeHistory(strokes) {
   if (CLAWDRAW_NO_HISTORY) return;
-  const sessions = loadStrokeHistory();
-  const session = {
-    timestamp: new Date().toISOString(),
-    strokes: strokes.map(s => ({
-      id: s.id,
-      chunkKey: getChunkKey(s),
-    })).filter(s => s.id),
-  };
-  if (session.strokes.length === 0) return;
-  sessions.push(session);
-  // Trim to max sessions
-  while (sessions.length > HISTORY_MAX_SESSIONS) {
-    sessions.shift();
-  }
-  writeStrokeHistory(sessions);
+  withHistoryLock(() => {
+    const sessions = loadStrokeHistory();
+    const session = {
+      timestamp: new Date().toISOString(),
+      ...(CLAWDRAW_SWARM_ID ? { swarmId: CLAWDRAW_SWARM_ID } : {}),
+      strokes: strokes.map(s => ({
+        id: s.id,
+        chunkKey: getChunkKey(s),
+      })).filter(s => s.id),
+    };
+    if (session.strokes.length === 0) return;
+    sessions.push(session);
+    while (sessions.length > HISTORY_MAX_SESSIONS) {
+      sessions.shift();
+    }
+    writeStrokeHistory(sessions);
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -2008,6 +2031,29 @@ async function cmdPaint(url, args) {
 // Undo — bulk-delete last N drawing sessions via HTTP
 // ---------------------------------------------------------------------------
 
+/**
+ * Build undo units from sessions.
+ * A swarm (all sessions sharing a swarmId) counts as one unit.
+ * Returns units newest-first.
+ */
+function buildUndoUnits(sessions) {
+  const units = [];
+  const seenSwarms = new Set();
+  for (let i = sessions.length - 1; i >= 0; i--) {
+    const s = sessions[i];
+    if (s.swarmId) {
+      if (!seenSwarms.has(s.swarmId)) {
+        seenSwarms.add(s.swarmId);
+        const swarmSessions = sessions.filter(x => x.swarmId === s.swarmId);
+        units.push({ type: 'swarm', swarmId: s.swarmId, sessions: swarmSessions });
+      }
+    } else {
+      units.push({ type: 'single', sessions: [s] });
+    }
+  }
+  return units; // newest first
+}
+
 async function cmdUndo(args) {
   const count = Math.max(1, Number(args.count) || 1);
   const sessions = loadStrokeHistory();
@@ -2018,20 +2064,30 @@ async function cmdUndo(args) {
     process.exit(0);
   }
 
-  const toUndo = sessions.slice(-count);
-  const strokeEntries = [];
-  for (const session of toUndo) {
-    for (const s of session.strokes) {
-      strokeEntries.push({ id: s.id, chunkKey: s.chunkKey });
-    }
+  const units = buildUndoUnits(sessions);
+  if (units.length === 0) {
+    console.log('No undo units found.');
+    process.exit(0);
   }
+
+  const toUndo = units.slice(0, count);
+  const sessionsToRemove = toUndo.flatMap(u => u.sessions);
+  const strokeEntries = sessionsToRemove.flatMap(s => s.strokes);
 
   if (strokeEntries.length === 0) {
     console.log('Selected sessions contain no stroke IDs.');
     process.exit(0);
   }
 
-  console.log(`Undoing ${toUndo.length} session(s) — ${strokeEntries.length} stroke(s)...`);
+  // Log what's being undone
+  console.log(`Undoing ${toUndo.length} unit(s) — ${strokeEntries.length} stroke(s)...`);
+  for (const unit of toUndo) {
+    if (unit.type === 'swarm') {
+      console.log(`  Swarm "${unit.swarmId}": ${unit.sessions.length} worker session(s)`);
+    } else {
+      console.log(`  Session: ${new Date(unit.sessions[0].timestamp).toLocaleString()}`);
+    }
+  }
 
   try {
     const token = await getToken(CLAWDRAW_API_KEY);
@@ -2064,7 +2120,8 @@ async function cmdUndo(args) {
     }
 
     // Remove undone sessions from history
-    const remaining = sessions.slice(0, sessions.length - toUndo.length);
+    const removeTimestamps = new Set(sessionsToRemove.map(s => s.timestamp));
+    const remaining = sessions.filter(s => !removeTimestamps.has(s.timestamp));
     writeStrokeHistory(remaining);
 
     console.log(`Undo complete: ${totalDeleted} deleted, ${totalNotFound} not found, ${totalForbidden} forbidden.`);
@@ -2111,6 +2168,12 @@ async function cmdRename(args) {
 // ---------------------------------------------------------------------------
 
 async function cmdPlanSwarm(args) {
+  // Generate swarm ID
+  const now = new Date();
+  const ts = now.toISOString().replace(/\D/g, '').slice(0, 14);
+  const rand = Math.random().toString(16).slice(2, 7);
+  const swarmId = `swarm-${ts}-${rand}`;
+
   if (Number(args.agents) > 8) console.warn('--agents capped at 8 (max concurrent sessions per agent)');
   const N = Math.min(8, Math.max(1, Number(args.agents) || 4));
   const pattern = args.pattern || 'converge';
@@ -2121,6 +2184,27 @@ async function cmdPlanSwarm(args) {
   if (!['converge', 'radiate', 'tile'].includes(pattern)) {
     console.error('Error: --pattern must be converge, radiate, or tile');
     process.exit(1);
+  }
+
+  // Parse new args
+  const namesArg = args.names ? String(args.names).split(',').map(s => s.trim()) : [];
+
+  let rolesArg = [];
+  if (args.roles) {
+    try {
+      rolesArg = Array.isArray(args.roles) ? args.roles : JSON.parse(String(args.roles));
+    } catch {
+      console.error('Error: --roles must be a valid JSON array'); process.exit(1);
+    }
+  }
+  const roleMap = new Map(rolesArg.map(r => [r.id, r]));
+
+  const stageMap = new Map();
+  if (args.stages) {
+    String(args.stages).split('|').forEach((group, idx) => {
+      group.split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n))
+        .forEach(id => stageMap.set(id, idx));
+    });
   }
 
   // Determine center
@@ -2178,7 +2262,7 @@ async function cmdPlanSwarm(args) {
         noWaypoint: i !== 0,
         env: {
           CLAWDRAW_DISPLAY_NAME: `swarm-${LABELS[i] || `A${i}`}`,
-          CLAWDRAW_NO_HISTORY: '1',
+          CLAWDRAW_SWARM_ID: swarmId,
         },
       });
     }
@@ -2201,33 +2285,98 @@ async function cmdPlanSwarm(args) {
         noWaypoint: i !== 0,
         env: {
           CLAWDRAW_DISPLAY_NAME: `swarm-${LABELS[i] || `A${i}`}`,
-          CLAWDRAW_NO_HISTORY: '1',
+          CLAWDRAW_SWARM_ID: swarmId,
         },
       });
     }
   }
 
+  // Enrichment pass — apply names, roles, stages, waitFor
+  const stageToAgents = new Map();
+  for (const a of agents) {
+    const role = roleMap.get(a.id) || {};
+    const name = role.name || namesArg[a.id] || `swarm-${a.label}`;
+    const stage = role.stage !== undefined ? role.stage
+                : stageMap.has(a.id) ? stageMap.get(a.id) : 0;
+    a.name = name;
+    a.role = role.role || null;
+    a.direction = role.direction || null;
+    a.tools = role.tools ? String(role.tools).split(',').map(s => s.trim()) : [];
+    a.stage = stage;
+    a.instructions = role.instructions || null;
+    a.env.CLAWDRAW_DISPLAY_NAME = name;
+    if (!stageToAgents.has(stage)) stageToAgents.set(stage, []);
+    stageToAgents.get(stage).push(a.id);
+  }
+  const sortedStages = [...stageToAgents.keys()].sort((a, b) => a - b);
+  for (const a of agents) {
+    const idx = sortedStages.indexOf(a.stage);
+    a.waitFor = idx > 0 ? (stageToAgents.get(sortedStages[idx - 1]) || []) : [];
+  }
+  const stageCount = stageToAgents.size;
+  const choreographed = stageCount > 1;
+
   if (jsonOut) {
     const output = {
+      swarmId,
       pattern,
       center: { x: cx, y: cy },
       spread,
       totalBudget,
+      stageCount,
+      choreographed,
       waypointAgent: 0,
       agents,
     };
     console.log(JSON.stringify(output, null, 2));
   } else {
-    console.log(`Swarm plan: ${N} agents, ${pattern} pattern`);
-    console.log(`Center: (${cx}, ${cy})  Spread: ${spread}  Total budget: ${totalBudget} INQ`);
+    const choreoNote = choreographed ? ` (choreographed, ${stageCount} stages)` : '';
+    console.log(`Swarm plan: ${N} agents, ${pattern} pattern${choreoNote}`);
+    console.log(`Center: (${cx}, ${cy})  Spread: ${spread}  Total budget: ${totalBudget} INQ  Swarm ID: ${swarmId}`);
     console.log('');
-    for (const a of agents) {
-      const arrow = pattern === 'tile' ? '(local)' : `→ center`;
-      const wpNote = a.noWaypoint ? '--no-waypoint' : '[opens waypoint]';
-      console.log(`Agent ${a.id} [${a.label}]  start (${a.cx}, ${a.cy}) ${arrow}  budget: ${a.budget} INQ  ${wpNote}`);
+
+    if (choreographed) {
+      // Stage-grouped output
+      for (const stageNum of sortedStages) {
+        const stageAgents = agents.filter(a => a.stage === stageNum);
+        const stageIdx = sortedStages.indexOf(stageNum);
+        const stageLabel = stageIdx === 0
+          ? `Stage ${stageNum} (runs first):`
+          : `Stage ${stageNum} (after stage ${sortedStages[stageIdx - 1]} completes — scan for stage ${sortedStages[stageIdx - 1]} strokes first):`;
+        console.log(stageLabel);
+
+        for (const a of stageAgents) {
+          const arrow = pattern === 'tile' ? '(local)' : '→ center';
+          const wpNote = a.noWaypoint ? '--no-waypoint' : '[opens waypoint]';
+          const nameStr = a.name ? `"${a.name}"` : '';
+          const roleStr = a.role || '';
+          const dirStr = a.direction || '';
+          console.log(`  Agent ${a.id} [${a.label}]  ${nameStr}  ${roleStr}  ${dirStr}  start (${a.cx}, ${a.cy}) ${arrow}  ${a.budget} INQ  ${wpNote}`);
+          if (a.tools.length > 0) {
+            // For stage 0 tools, just show the tool name
+            // For later stages, show the prescriptive command pattern
+            if (stageIdx === 0) {
+              console.log(`  Tools: ${a.tools.join(', ')}`);
+            } else {
+              const toolLines = a.tools.map(t => `${t}  →  clawdraw ${t} --source <stroke-id> --no-waypoint`);
+              console.log(`  Tools: ${toolLines.join(', ')}`);
+            }
+          }
+          if (a.instructions) {
+            console.log(`  Instructions: ${a.instructions}`);
+          }
+        }
+        console.log('');
+      }
+    } else {
+      for (const a of agents) {
+        const arrow = pattern === 'tile' ? '(local)' : '→ center';
+        const wpNote = a.noWaypoint ? '--no-waypoint' : '[opens waypoint]';
+        console.log(`Agent ${a.id} [${a.label}]  start (${a.cx}, ${a.cy}) ${arrow}  budget: ${a.budget} INQ  ${wpNote}`);
+      }
+      console.log('');
+      console.log('Run with --json for machine-readable output to distribute to workers.');
     }
-    console.log('');
-    console.log('Run with --json for machine-readable output to distribute to workers.');
   }
 }
 

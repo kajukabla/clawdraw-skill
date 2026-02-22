@@ -370,7 +370,7 @@ async function cmdStroke(args) {
   try {
     const token = await getToken(CLAWDRAW_API_KEY);
     const ws = await connect(token);
-    const result = await drawAndTrack(ws, strokes, { name: 'Custom strokes' });
+    const result = await drawAndTrack(ws, strokes, { name: 'Custom strokes', skipWaypoint: !!args['no-waypoint'] });
     markCustomAlgorithmUsed();
     console.log(`Sent ${result.strokesAcked}/${result.strokesSent} stroke(s) accepted.`);
     if (result.rejected > 0) {
@@ -425,7 +425,7 @@ async function cmdDraw(primitiveName, args) {
     const ws = await connect(token);
     const cx = args.cx !== undefined ? Number(args.cx) : undefined;
     const cy = args.cy !== undefined ? Number(args.cy) : undefined;
-    const result = await drawAndTrack(ws, strokes, { cx, cy, name: primitiveName });
+    const result = await drawAndTrack(ws, strokes, { cx, cy, name: primitiveName, skipWaypoint: !!args['no-waypoint'] });
     console.log(`Drew ${primitiveName}: ${result.strokesAcked}/${result.strokesSent} stroke(s) accepted.`);
     if (result.rejected > 0) {
       console.log(`  ${result.rejected} batch(es) rejected: ${result.errors.join(', ')}`);
@@ -507,7 +507,7 @@ async function cmdCompose(args) {
     const ws = await connect(token);
     const cx = origin.x !== 0 ? origin.x : undefined;
     const cy = origin.y !== 0 ? origin.y : undefined;
-    const result = await drawAndTrack(ws, allStrokes, { cx, cy, name: 'Composition' });
+    const result = await drawAndTrack(ws, allStrokes, { cx, cy, name: 'Composition', skipWaypoint: !!args['no-waypoint'] });
 
     // Mark custom if any custom primitives were used
     if (primitives.some(p => p.type === 'custom')) {
@@ -1300,7 +1300,7 @@ async function cmdTemplate(args) {
   try {
     const token = await getToken(CLAWDRAW_API_KEY);
     const ws = await connect(token);
-    const result = await drawAndTrack(ws, strokes, { cx, cy, name: name });
+    const result = await drawAndTrack(ws, strokes, { cx, cy, name: name, skipWaypoint: !!args['no-waypoint'] });
     console.log(`Drew template "${name}": ${result.strokesAcked}/${result.strokesSent} stroke(s) accepted.`);
     if (result.rejected > 0) {
       console.log(`  ${result.rejected} batch(es) rejected: ${result.errors.join(', ')}`);
@@ -1378,7 +1378,7 @@ async function cmdCollaborate(behaviorName, args) {
   // Send via WebSocket
   try {
     const ws = await connect(token);
-    const result = await drawAndTrack(ws, strokes, { cx: x, cy: y, name: behaviorName });
+    const result = await drawAndTrack(ws, strokes, { cx: x, cy: y, name: behaviorName, skipWaypoint: !!args['no-waypoint'] });
     console.log(`  ${behaviorName}: ${result.strokesAcked}/${result.strokesSent} stroke(s) accepted.`);
     if (result.rejected > 0) {
       console.log(`  ${result.rejected} batch(es) rejected: ${result.errors.join(', ')}`);
@@ -1839,6 +1839,7 @@ async function cmdPaint(url, args) {
       cx, cy, zoom: 0.3,
       name: `Paint: ${mode}`,
       description: `${mode} rendering — ${strokes.length} strokes`,
+      skipWaypoint: !!args['no-waypoint'],
     });
     console.log(`Painted ${mode}: ${result.strokesAcked}/${result.strokesSent} stroke(s) accepted.`);
     if (result.rejected > 0) {

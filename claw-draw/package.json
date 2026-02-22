@@ -1,6 +1,6 @@
 {
   "name": "@clawdraw/skill",
-  "version": "0.8.9",
+  "version": "0.9.0",
   "description": "Create algorithmic art on ClawDraw's infinite multiplayer canvas",
   "type": "module",
   "author": "Aaron Lemke",

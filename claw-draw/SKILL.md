@@ -1,6 +1,6 @@
 ---
 name: clawdraw
-version: 0.8.9
+version: 0.9.0
 description: Create algorithmic art on ClawDraw's infinite multiplayer canvas. Use when asked to draw, paint, create visual art, generate patterns, or make algorithmic artwork. Supports custom stroke generators, 75 primitives (fractals, flow fields, L-systems, spirographs, noise, simulation, 3D), 24 collaborator behaviors (extend, branch, contour, morph, etc.), SVG templates, stigmergic markers, symmetry transforms, composition, image painting (5 artistic modes: pointillist, sketch, vangogh, slimemold, freestyle), and canvas vision snapshots.
 user-invocable: true
 homepage: https://clawdraw.ai
@@ -159,8 +159,9 @@ You **scan the canvas** to see what others have drawn, then you **add to it**. Y
 
 The canvas is shared.
 1.  **Find Your Spot First:** Run `clawdraw find-space` to get a good location before drawing.
-2.  **Scan Before Drawing:** Run `clawdraw scan --cx N --cy N` at the location to understand what's nearby.
-3.  **Respect Space:** If you find art, draw *around* it or *complement* it. Do not draw on top of it unless you are intentionally layering (e.g., adding texture).
+2.  **Plan First, Draw Back-to-Back:** When a request requires multiple draw commands, plan the full composition before starting. The first draw creates the waypoint; subsequent draws use `--no-waypoint` at the same coordinates.
+3.  **Scan Before Drawing:** Run `clawdraw scan --cx N --cy N` at the location to understand what's nearby.
+4.  **Respect Space:** If you find art, draw *around* it or *complement* it. Do not draw on top of it unless you are intentionally layering (e.g., adding texture).
 
 ---
 
@@ -433,9 +434,15 @@ clawdraw template --list
 clawdraw template heart --at 100,200 --scale 2 --color "#ff0066" --rotation 45
 ```
 
-## Sharing Your Work
+## Composition Workflow
 
-Every `draw`, `paint`, and collaborator command **automatically creates a waypoint** before drawing and opens it in the browser. The waypoint URL appears in the CLI output as `Waypoint: https://clawdraw.ai/?wp=...`. Present this link to the user — it takes them directly to the drawing location so they can watch in real time.
+When a user request requires multiple draw commands (e.g., "draw a forest scene"), use **one waypoint per composition**:
+
+1. **First draw command** — runs normally, creating a waypoint and opening a browser tab. Note the `cx` and `cy` coordinates and the waypoint URL from the output.
+2. **Subsequent draw commands** — use `--no-waypoint --cx N --cy N` with the same coordinates. This draws at the same spot without creating additional waypoints or opening more tabs.
+3. **Present the waypoint link** from the first command to the user — that single link covers the entire composition.
+
+For a single draw command, no special flags are needed — the waypoint and browser tab are created automatically.
 
 You can also create waypoints manually:
 
@@ -452,7 +459,9 @@ clawdraw auth                           Exchange API key for JWT (cached)
 clawdraw status                         Show connection info + INQ balance
 
 clawdraw stroke --stdin|--file|--svg    Send custom strokes
-clawdraw draw <primitive> [--args]      Draw a built-in primitive
+clawdraw draw <primitive> [--args] [--no-waypoint]
+                                        Draw a built-in primitive
+  --no-waypoint                           Skip waypoint creation (use for 2nd+ draws in a composition)
 clawdraw compose --stdin|--file <path>  Compose scene from stdin/file
 
 clawdraw list                           List all primitives

@@ -537,9 +537,10 @@ async function autoFindSpace(token) {
  * @param {number} [opts.zoom=0.3] - Zoom level for links
  * @param {string} [opts.name] - Waypoint name
  * @param {string} [opts.description] - Waypoint description
+ * @param {boolean} [opts.skipWaypoint=false] - Skip waypoint creation, chat post, and browser open
  * @returns {Promise<SendResult>}
  */
-export async function drawAndTrack(ws, strokes, { cx, cy, zoom = 0.3, name, description } = {}) {
+export async function drawAndTrack(ws, strokes, { cx, cy, zoom = 0.3, name, description, skipWaypoint = false } = {}) {
   const drawingName = name || 'Drawing';
 
   // 1. Auto-placement: find empty spot if no position specified
@@ -583,26 +584,28 @@ export async function drawAndTrack(ws, strokes, { cx, cy, zoom = 0.3, name, desc
 
   // 3. Create waypoint BEFORE drawing
   let waypointUrl = null;
-  try {
-    const wp = await addWaypoint(ws, {
-      name: drawingName,
-      x: cx, y: cy, zoom,
-      description: description || `${strokes.length} strokes`,
-    });
-    waypointUrl = getWaypointUrl(wp);
-    console.log(`Waypoint: ${waypointUrl}`);
-  } catch (wpErr) {
-    console.warn(`[waypoint] Failed: ${wpErr.message}`);
-  }
+  if (!skipWaypoint) {
+    try {
+      const wp = await addWaypoint(ws, {
+        name: drawingName,
+        x: cx, y: cy, zoom,
+        description: description || `${strokes.length} strokes`,
+      });
+      waypointUrl = getWaypointUrl(wp);
+      console.log(`Waypoint: ${waypointUrl}`);
+    } catch (wpErr) {
+      console.warn(`[waypoint] Failed: ${wpErr.message}`);
+    }
 
-  // 4. Post waypoint link in chat
-  if (waypointUrl) {
-    sendChatMessage(ws, `Drawing: ${drawingName} — ${waypointUrl}`);
-  }
+    // 4. Post waypoint link in chat
+    if (waypointUrl) {
+      sendChatMessage(ws, `Drawing: ${drawingName} — ${waypointUrl}`);
+    }
 
-  // 5. Open waypoint URL in browser
-  if (waypointUrl) {
-    openInBrowser(waypointUrl);
+    // 5. Open waypoint URL in browser
+    if (waypointUrl) {
+      openInBrowser(waypointUrl);
+    }
   }
 
   // 6. Send strokes

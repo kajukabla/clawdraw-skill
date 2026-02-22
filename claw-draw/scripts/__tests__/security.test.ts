@@ -75,14 +75,19 @@ describe('env-harvesting protection', () => {
     expect(src).toContain('process.env.CLAWDRAW_API_KEY');
   });
 
-  it('no published script should use process.env for anything except CLAWDRAW_API_KEY', () => {
-    const scripts = ['auth.mjs', 'clawdraw.mjs', 'connection.mjs', 'symmetry.mjs', 'snapshot.mjs', 'roam.mjs'];
+  it('no published script should use process.env for anything except allowed vars', () => {
+    const scripts = ['auth.mjs', 'clawdraw.mjs', 'connection.mjs', 'symmetry.mjs', 'snapshot.mjs', 'roam.mjs', 'setup-claude-code.mjs'];
+    const ALLOWED_ENV_VARS = new Set([
+      'process.env.CLAWDRAW_API_KEY',
+      'process.env.CLAWDRAW_DISPLAY_NAME',
+      'process.env.CLAWDRAW_NO_HISTORY',
+    ]);
     for (const name of scripts) {
       const src = readScript(name);
       // Find all process.env usages
       const envMatches = src.match(/process\.env\.\w+/g) || [];
       for (const match of envMatches) {
-        expect(match, `${name} uses disallowed env var: ${match}`).toBe('process.env.CLAWDRAW_API_KEY');
+        expect(ALLOWED_ENV_VARS.has(match), `${name} uses disallowed env var: ${match}`).toBe(true);
       }
     }
   });
@@ -398,7 +403,7 @@ describe('community/ safety', () => {
 // ---------------------------------------------------------------------------
 
 describe('@security-manifest headers', () => {
-  const publishedScripts = ['clawdraw.mjs', 'auth.mjs', 'connection.mjs', 'snapshot.mjs', 'symmetry.mjs', 'roam.mjs'];
+  const publishedScripts = ['clawdraw.mjs', 'auth.mjs', 'connection.mjs', 'snapshot.mjs', 'symmetry.mjs', 'roam.mjs', 'setup-claude-code.mjs'];
 
   it('all published scripts have @security-manifest header', () => {
     for (const name of publishedScripts) {

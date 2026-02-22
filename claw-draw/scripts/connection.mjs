@@ -3,7 +3,7 @@
  * WebSocket connection manager for sending strokes to the ClawDraw relay.
  *
  * Usage:
- *   import { connect, sendStrokes, addWaypoint, getWaypointUrl, deleteStroke, deleteWaypoint, disconnect } from './connection.mjs';
+ *   import { connect, sendStrokes, addWaypoint, getWaypointUrl, deleteStroke, deleteWaypoint, setUsername, disconnect } from './connection.mjs';
  *
  *   const ws = await connect(token);
  *   const result = await sendStrokes(ws, strokes);
@@ -91,13 +91,13 @@ const BASE_DELAY_MS = 1000;
  *
  * @param {string} token - JWT from auth.mjs getToken()
  * @param {object} [opts]
- * @param {string} [opts.username] - Bot display name
+ * @param {string} [opts.username] - Bot display name (relay uses JWT agentName if omitted)
  * @param {{ x: number, y: number }} [opts.center] - Viewport center
  * @param {number} [opts.zoom] - Viewport zoom
  * @returns {Promise<WebSocket>}
  */
 export function connect(token, opts = {}) {
-  const username = opts.username || 'openclaw-bot';
+  const username = opts.username || undefined;
   const center = opts.center || { x: 0, y: 0 };
   const zoom = opts.zoom || 0.2;
 
@@ -116,7 +116,7 @@ export function connect(token, opts = {}) {
           size: { width: 6000, height: 6000 },
         },
         cursor: center,
-        username,
+        ...(username ? { username } : {}),
       };
       ws.send(JSON.stringify(ws._currentViewport));
       ws._clawdrawUsername = username;
@@ -158,6 +158,10 @@ export function connect(token, opts = {}) {
             if (msg.type === 'chunks.initial') {
               clearTimeout(subTimeout);
               ws.removeListener('message', onChunksInitial);
+              // Send set.username after subscription is established
+              if (username) {
+                ws.send(JSON.stringify({ type: 'set.username', username }));
+              }
               resolve(ws);
               return;
             }
@@ -412,8 +416,8 @@ export function addWaypoint(ws, { name, x, y, zoom, description }) {
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       ws.removeListener('message', handler);
-      reject(new Error('Waypoint response timeout (5s)'));
-    }, 5000);
+      reject(new Error('Waypoint response timeout (15s)'));
+    }, 15000);
 
     function handler(data) {
       try {
@@ -446,9 +450,10 @@ export function addWaypoint(ws, { name, x, y, zoom, description }) {
  *
  * @param {WebSocket} ws - Connected WebSocket
  * @param {string} strokeId - ID of the stroke to delete
+ * @param {string} [chunkKey] - Optional chunk key for more efficient deletion
  * @returns {Promise<{ deleted: true }>}
  */
-export function deleteStroke(ws, strokeId) {
+export function deleteStroke(ws, strokeId, chunkKey) {
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       ws.removeListener('message', handler);
@@ -474,7 +479,9 @@ export function deleteStroke(ws, strokeId) {
     }
 
     ws.on('message', handler);
-    ws.send(JSON.stringify({ type: 'stroke.delete', strokeId }));
+    const msg = { type: 'stroke.delete', strokeId };
+    if (chunkKey) msg.chunkIds = [chunkKey];
+    ws.send(JSON.stringify(msg));
   });
 }
 
@@ -516,13 +523,54 @@ export function deleteWaypoint(ws, waypointId) {
 }
 
 /**
+ * Change the display username for the current session.
+ * Sends set.username and waits for username.updated ack.
+ *
+ * @param {WebSocket} ws - Connected WebSocket
+ * @param {string} username - New display name (1-32 chars, alphanumeric/dash/underscore)
+ * @returns {Promise<{ username: string }>}
+ */
+export function setUsername(ws, username) {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      ws.removeListener('message', handler);
+      // Non-critical — resolve on timeout rather than rejecting
+      resolve({ username });
+    }, 5000);
+
+    function handler(data) {
+      try {
+        const parsed = JSON.parse(data.toString());
+        const msgs = Array.isArray(parsed) ? parsed : [parsed];
+        for (const msg of msgs) {
+          if (msg.type === 'username.updated') {
+            clearTimeout(timeout);
+            ws.removeListener('message', handler);
+            resolve({ username: msg.username || username });
+            return;
+          } else if (msg.type === 'sync.error') {
+            clearTimeout(timeout);
+            ws.removeListener('message', handler);
+            reject(new Error(msg.message || msg.code));
+            return;
+          }
+        }
+      } catch { /* ignore */ }
+    }
+
+    ws.on('message', handler);
+    ws.send(JSON.stringify({ type: 'set.username', username }));
+  });
+}
+
+/**
  * Build a shareable URL for a waypoint.
  *
  * @param {object} waypoint - Waypoint object with id property
  * @returns {string} Shareable URL
  */
 export function getWaypointUrl(waypoint) {
-  return `https://clawdraw.ai/?wp=${waypoint.id}&nomodal=1`;
+  return `https://clawdraw.ai/?wp=${waypoint.id}`;
 }
 
 /**
@@ -614,7 +662,7 @@ export async function drawAndTrack(ws, strokes, { cx, cy, zoom, name, descriptio
     const bboxW = bbox.maxX - bbox.minX;
     const bboxH = bbox.maxY - bbox.minY;
     const extent = Math.max(bboxW, bboxH, 50); // min 50 to avoid extreme zoom
-    zoom = Math.min(Math.max(600 / extent, 0.3), 5); // clamp 0.3–5.0
+    zoom = Math.min(Math.max(1200 / extent, 0.3), 5); // clamp 0.3–5.0
   }
 
   // 2. Update viewport/cursor to drawing center
@@ -642,14 +690,9 @@ export async function drawAndTrack(ws, strokes, { cx, cy, zoom, name, descriptio
       console.warn(`[waypoint] Failed: ${wpErr.message}`);
     }
 
-    // 4. Post waypoint link in chat
+    // 4. Open waypoint URL in browser (with nomodal for clean viewing)
     if (waypointUrl) {
-      sendChatMessage(ws, `Drawing: ${drawingName} — ${waypointUrl}`);
-    }
-
-    // 5. Open waypoint URL in browser
-    if (waypointUrl) {
-      openInBrowser(waypointUrl);
+      openInBrowser(`${waypointUrl}&nomodal=1`);
     }
   }
 
@@ -661,12 +704,7 @@ export async function drawAndTrack(ws, strokes, { cx, cy, zoom, name, descriptio
   // 6. Send strokes
   const result = await sendStrokes(ws, strokes);
 
-  // 7. Post waypoint link in chat again
-  if (waypointUrl) {
-    sendChatMessage(ws, `Done: ${drawingName} — ${waypointUrl}`);
-  }
-
-  // 8. Capture snapshot
+  // 7. Capture snapshot
   try {
     const snapshot = await captureSnapshot(ws, strokes, TILE_CDN_URL);
     if (snapshot) {

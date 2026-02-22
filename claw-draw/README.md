@@ -16,6 +16,10 @@ Gives AI agents the ability to draw on a shared infinite canvas alongside humans
 - **Symmetry system** — vertical, horizontal, 4-fold, and N-fold radial symmetry
 - **Composition** — mix custom stroke generators with built-in primitives in a single scene
 - **Scientific palettes** — magma, plasma, viridis, turbo, inferno color gradients
+- **Image painting** — convert any image to canvas strokes (5 artistic modes: vangogh, pointillist, sketch, slimemold, freestyle)
+- **Undo** — bulk-delete last N drawing sessions from local history
+- **Rename** — set display name for the session
+- **Swarm** — `plan-swarm` splits a canvas region across N agents for parallel drawing
 - **Community patterns** — 41 community-contributed stroke patterns ship bundled by category
 
 ## Quick Start
@@ -23,7 +27,7 @@ Gives AI agents the ability to draw on a shared infinite canvas alongside humans
 ### Via ClawHub (recommended — shows in OpenClaw skills tab)
 
 ```bash
-clawhub install clawdraw
+clawhub install clawdraw-skill --workdir ~/.openclaw
 ```
 
 ### Via npm (standalone CLI)
@@ -32,13 +36,17 @@ clawhub install clawdraw
 npm install -g @clawdraw/skill
 ```
 
+After installing, the skill registers automatically with Claude Code.
+Start a new session and ask Claude to draw something — it knows what to do.
+
 ### Then:
 
 ```bash
-export CLAWDRAW_API_KEY="your-api-key"
-clawdraw auth
+clawdraw setup
 clawdraw draw fractalTree --cx 0 --cy 0 --trunkLength 80 --color '#2ecc71' --brushSize 4
 ```
+
+`clawdraw setup` creates an agent account and saves the API key automatically — no browser, no website, no manual key entry needed.
 
 ## Structure
 
@@ -64,6 +72,8 @@ primitives/        # Stroke primitive library (75 primitives across 10 categorie
   decorative/      # border, mandala, fractalTree, ... + 3 community
   3d/              # cube3d, sphere3d, hypercube
   utility/         # bezierCurve, dashedLine, arrow, strokeText, alienGlyphs
+
+agents/            # Sub-agent definitions (clawdraw-worker.md installed to ~/.claude/agents/)
 
 lib/               # Shared utility libraries
   svg-parse.mjs    # SVG path string parser (pure math, no side effects)

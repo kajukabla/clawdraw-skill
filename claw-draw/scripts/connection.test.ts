@@ -70,7 +70,7 @@ vi.mock('ws', () => ({
 }));
 
 // Import AFTER mock setup
-const { addWaypoint, getWaypointUrl, sendStrokes, connect, disconnect } = await import('./connection.mjs');
+const { addWaypoint, getWaypointUrl, sendStrokes, connect, disconnect, setUsername } = await import('./connection.mjs');
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -131,12 +131,12 @@ describe('addWaypoint', () => {
     await expect(p).rejects.toThrow('RATE_LIMIT');
   });
 
-  it('should reject after 5s timeout', async () => {
+  it('should reject after 15s timeout', async () => {
     const p = addWaypoint(ws, { name: 'Slow', x: 0, y: 0, zoom: 1 });
 
-    vi.advanceTimersByTime(5000);
+    vi.advanceTimersByTime(15000);
 
-    await expect(p).rejects.toThrow('Waypoint response timeout (5s)');
+    await expect(p).rejects.toThrow('Waypoint response timeout (15s)');
   });
 
   it('should clean up message listener on success', async () => {
@@ -178,7 +178,7 @@ describe('addWaypoint', () => {
 describe('getWaypointUrl', () => {
   it('should build URL with hardcoded base', () => {
     const url = getWaypointUrl({ id: 'wp_123' });
-    expect(url).toBe('https://clawdraw.ai/?wp=wp_123&nomodal=1');
+    expect(url).toBe('https://clawdraw.ai/?wp=wp_123');
   });
 });
 
@@ -499,5 +499,46 @@ describe('presence heartbeat', () => {
     expect(ws.sent.length).toBe(initialCount);
 
     clearInterval(ws._presenceHeartbeat);
+  });
+});
+
+describe('setUsername', () => {
+  let ws: MockWs;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    ws = new MockWs();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('should resolve on username.updated', async () => {
+    const p = setUsername(ws, 'newname');
+
+    ws._receive({ type: 'username.updated', username: 'newname' });
+
+    const result = await p;
+    expect(result).toEqual({ username: 'newname' });
+    expect(ws.sent).toHaveLength(1);
+    expect(ws.sent[0]).toEqual({ type: 'set.username', username: 'newname' });
+  });
+
+  it('should reject on sync.error', async () => {
+    const p = setUsername(ws, 'badname');
+
+    ws._receive({ type: 'sync.error', code: 'INVALID_USERNAME' });
+
+    await expect(p).rejects.toThrow('INVALID_USERNAME');
+  });
+
+  it('should resolve on timeout with original username', async () => {
+    const p = setUsername(ws, 'slowname');
+
+    vi.advanceTimersByTime(5000);
+
+    const result = await p;
+    expect(result).toEqual({ username: 'slowname' });
   });
 });

@@ -4,6 +4,38 @@
 
 import { clamp, lerp, lerpColor, makeStroke, splitIntoStrokes, samplePalette } from './helpers.mjs';
 
+/**
+ * Interpolate points between two coordinates to create denser geometry.
+ * This prevents miter joint artifacts in space colonization strokes.
+ * @param {Object} from - Starting point {x, y}
+ * @param {Object} to - Ending point {x, y}
+ * @param {number} maxSegmentLength - Maximum distance between interpolated points (default: 5)
+ * @returns {Array} Interpolated points (includes from, excludes to)
+ */
+function interpolatePoints(from, to, maxSegmentLength = 5) {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const distance = Math.hypot(dx, dy);
+
+  if (distance <= maxSegmentLength) {
+    return [from];
+  }
+
+  // Calculate number of segments needed
+  const numSegments = Math.ceil(distance / maxSegmentLength);
+  const result = [];
+
+  for (let i = 0; i < numSegments; i++) {
+    const t = i / numSegments;
+    result.push({
+      x: from.x + dx * t,
+      y: from.y + dy * t,
+    });
+  }
+
+  return result;
+}
+
 // ---------------------------------------------------------------------------
 // Metadata
 // ---------------------------------------------------------------------------
@@ -389,10 +421,29 @@ export function spaceColonization(cx, cy, width, height, density, color, brushSi
     if (!isLeaf[i]) continue;
     const pts = [];
     let idx = i;
-    while (idx >= 0 && pts.length < 100) {
-      pts.unshift({ x: nodes[idx].x, y: nodes[idx].y });
+    const nodePath = [];
+    while (idx >= 0) {
+      nodePath.unshift(idx);
       idx = nodes[idx].parent;
     }
+
+    // Interpolate points between algorithm nodes to prevent miter joint artifacts
+    // Use maxSegmentLength = 5 for smooth strokes with proper miter calculation
+    for (let n = 0; n < nodePath.length; n++) {
+      const node = nodes[nodePath[n]];
+      if (n === 0) {
+        pts.push({ x: node.x, y: node.y });
+      } else {
+        const prevNode = nodes[nodePath[n - 1]];
+        const interpolated = interpolatePoints(prevNode, node, 5);
+        for (let p = 1; p < interpolated.length; p++) {
+          pts.push(interpolated[p]);
+        }
+        pts.push({ x: node.x, y: node.y });
+      }
+      if (pts.length >= 100) break;
+    }
+
     if (pts.length > 1) {
       const t = palette ? clamp(1 - pts.length / 20, 0, 1) : 0;
       const c = palette ? samplePalette(palette, t) : color;

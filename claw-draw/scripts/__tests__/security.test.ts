@@ -82,6 +82,7 @@ describe('env-harvesting protection', () => {
       'process.env.CLAWDRAW_DISPLAY_NAME',
       'process.env.CLAWDRAW_NO_HISTORY',
       'process.env.CLAWDRAW_SWARM_ID',
+      'process.env.CLAWDRAW_PAINT_CORNER',
     ]);
     for (const name of scripts) {
       const src = readScript(name);

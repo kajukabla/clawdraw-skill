@@ -42,7 +42,7 @@
  */
 
 // @security-manifest
-// env: CLAWDRAW_API_KEY, CLAWDRAW_DISPLAY_NAME, CLAWDRAW_NO_HISTORY, CLAWDRAW_SWARM_ID
+// env: CLAWDRAW_API_KEY, CLAWDRAW_DISPLAY_NAME, CLAWDRAW_NO_HISTORY, CLAWDRAW_SWARM_ID, CLAWDRAW_PAINT_CORNER
 // endpoints: api.clawdraw.ai (HTTPS), relay.clawdraw.ai (WSS)
 // files: ~/.clawdraw/token.json, ~/.clawdraw/state.json, ~/.clawdraw/apikey.json, ~/.clawdraw/stroke-history.json
 // exec: none
@@ -479,7 +479,7 @@ async function cmdStroke(args) {
     const token = await getToken(CLAWDRAW_API_KEY);
     const ws = await connect(token, { username: CLAWDRAW_DISPLAY_NAME });
     const zoom = args.zoom !== undefined ? Number(args.zoom) : undefined;
-    const result = await drawAndTrack(ws, strokes, { zoom, name: 'Custom strokes', skipWaypoint: !!args['no-waypoint'] });
+    const result = await drawAndTrack(ws, strokes, { zoom, name: 'Custom strokes', skipWaypoint: !!args['no-waypoint'], swarm: !!CLAWDRAW_SWARM_ID });
     markCustomAlgorithmUsed();
     if (result.strokesAcked > 0 && !args['no-history']) saveStrokeHistory(strokes);
     console.log(`Sent ${result.strokesAcked}/${result.strokesSent} stroke(s) accepted.`);
@@ -536,7 +536,7 @@ async function cmdDraw(primitiveName, args) {
     const cx = args.cx !== undefined ? Number(args.cx) : undefined;
     const cy = args.cy !== undefined ? Number(args.cy) : undefined;
     const zoom = args.zoom !== undefined ? Number(args.zoom) : undefined;
-    const result = await drawAndTrack(ws, strokes, { cx, cy, zoom, name: primitiveName, skipWaypoint: !!args['no-waypoint'] });
+    const result = await drawAndTrack(ws, strokes, { cx, cy, zoom, name: primitiveName, skipWaypoint: !!args['no-waypoint'], swarm: !!CLAWDRAW_SWARM_ID });
     if (result.strokesAcked > 0 && !args['no-history']) saveStrokeHistory(strokes);
     console.log(`Drew ${primitiveName}: ${result.strokesAcked}/${result.strokesSent} stroke(s) accepted.`);
     if (result.rejected > 0) {
@@ -658,10 +658,11 @@ async function cmdCompose(args) {
   try {
     const token = await getToken(CLAWDRAW_API_KEY);
     const ws = await connect(token, { username: CLAWDRAW_DISPLAY_NAME });
-    const cx = origin.x !== 0 ? origin.x : undefined;
-    const cy = origin.y !== 0 ? origin.y : undefined;
+    const hasOrigin = data.origin != null;
+    const cx = hasOrigin ? origin.x : undefined;
+    const cy = hasOrigin ? origin.y : undefined;
     const zoom = args.zoom !== undefined ? Number(args.zoom) : undefined;
-    const result = await drawAndTrack(ws, allStrokes, { cx, cy, zoom, name: 'Composition', skipWaypoint: !!args['no-waypoint'] });
+    const result = await drawAndTrack(ws, allStrokes, { cx, cy, zoom, name: 'Composition', skipWaypoint: !!args['no-waypoint'], absolute: hasOrigin, swarm: !!CLAWDRAW_SWARM_ID });
 
     // Mark custom if any custom primitives were used
     if (primitives.some(p => p.type === 'custom')) {
@@ -1465,7 +1466,7 @@ async function cmdTemplate(args) {
     const token = await getToken(CLAWDRAW_API_KEY);
     const ws = await connect(token, { username: CLAWDRAW_DISPLAY_NAME });
     const zoom = args.zoom !== undefined ? Number(args.zoom) : undefined;
-    const result = await drawAndTrack(ws, strokes, { cx, cy, zoom, name: name, skipWaypoint: !!args['no-waypoint'] });
+    const result = await drawAndTrack(ws, strokes, { cx, cy, zoom, name: name, skipWaypoint: !!args['no-waypoint'], swarm: !!CLAWDRAW_SWARM_ID });
     if (result.strokesAcked > 0 && !args['no-history']) saveStrokeHistory(strokes);
     console.log(`Drew template "${name}": ${result.strokesAcked}/${result.strokesSent} stroke(s) accepted.`);
     if (result.rejected > 0) {
@@ -1545,7 +1546,7 @@ async function cmdCollaborate(behaviorName, args) {
   try {
     const ws = await connect(token, { username: CLAWDRAW_DISPLAY_NAME });
     const zoom = args.zoom !== undefined ? Number(args.zoom) : undefined;
-    const result = await drawAndTrack(ws, strokes, { cx: x, cy: y, zoom, name: behaviorName, skipWaypoint: !!args['no-waypoint'] });
+    const result = await drawAndTrack(ws, strokes, { cx: x, cy: y, zoom, name: behaviorName, skipWaypoint: !!args['no-waypoint'], swarm: !!CLAWDRAW_SWARM_ID });
     if (result.strokesAcked > 0 && !args['no-history']) saveStrokeHistory(strokes);
     console.log(`  ${behaviorName}: ${result.strokesAcked}/${result.strokesSent} stroke(s) accepted.`);
     if (result.rejected > 0) {
@@ -1982,7 +1983,7 @@ async function cmdPaint(url, args) {
     const regions = analyzeRegions(pixelData, { density });
     strokes = renderFreestyle(regions, { density });
   } else {
-    strokes = traceImage(pixelData, { mode, density });
+    strokes = traceImage(pixelData, { mode, density, paintCorner: process.env.CLAWDRAW_PAINT_CORNER });
   }
 
   // Estimate INQ cost
@@ -2009,6 +2010,7 @@ async function cmdPaint(url, args) {
       name: `Paint: ${mode}`,
       description: `${mode} rendering — ${strokes.length} strokes`,
       skipWaypoint: !!args['no-waypoint'],
+      swarm: !!CLAWDRAW_SWARM_ID,
     });
     if (result.strokesAcked > 0 && !args['no-history']) saveStrokeHistory(strokes);
     console.log(`Painted ${mode}: ${result.strokesAcked}/${result.strokesSent} stroke(s) accepted.`);

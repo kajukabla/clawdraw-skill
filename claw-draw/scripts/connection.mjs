@@ -270,6 +270,7 @@ function waitForBatchResponse(ws) {
  * @param {number} [optsOrDelay.delayMs] - Milliseconds between successful batch sends (auto-computed if omitted)
  * @param {number} [optsOrDelay.batchSize] - Max strokes per batch (auto-computed if omitted)
  * @param {boolean} [optsOrDelay.legacy=false] - Use single stroke.add per stroke
+ * @param {boolean} [optsOrDelay.swarm=false] - Swarm mode: use ideal animation pacing with no time cap so each worker animates smoothly
  * @returns {Promise<SendResult>}
  */
 export async function sendStrokes(ws, strokes, optsOrDelay = {}) {
@@ -279,15 +280,23 @@ export async function sendStrokes(ws, strokes, optsOrDelay = {}) {
     : optsOrDelay;
 
   const legacy = opts.legacy ?? false;
+  const swarm = opts.swarm ?? false;
 
   // Auto-compute pacing for animated drawing when not explicitly set.
   // Ideal: batchSize=2, delay=100ms for smooth cursor animation.
-  // If that would exceed MAX_DRAW_SECONDS, scale batch size up to fit.
+  // Solo mode: if that would exceed MAX_DRAW_SECONDS, scale batch size up to fit.
+  // Swarm mode: always use ideal pacing (no time cap) so each worker draws
+  //   with its own smooth cursor animation — viewers see N independent painters.
   let batchSize, delayMs;
   if (opts.batchSize !== undefined || opts.delayMs !== undefined) {
     // Explicit values — use as-is
     batchSize = opts.batchSize ?? BATCH_SIZE;
     delayMs = opts.delayMs ?? 50;
+  } else if (swarm) {
+    // Swarm mode: ideal animation pacing, no time cap.
+    // Each worker animates independently at the smooth cursor rate.
+    batchSize = ANIM_BATCH_SIZE;
+    delayMs = ANIM_DELAY_MS;
   } else {
     // Auto-compute: start with ideal animation pacing
     const idealBatches = Math.ceil(strokes.length / ANIM_BATCH_SIZE);
@@ -623,36 +632,46 @@ async function autoFindSpace(token) {
  * @param {string} [opts.name] - Waypoint name
  * @param {string} [opts.description] - Waypoint description
  * @param {boolean} [opts.skipWaypoint=false] - Skip waypoint creation, chat post, and browser open
+ * @param {boolean} [opts.absolute=false] - Strokes are at final absolute coordinates; skip auto-placement and re-centering
+ * @param {boolean} [opts.swarm=false] - Swarm mode: use ideal animation pacing with no time cap
  * @returns {Promise<SendResult>}
  */
-export async function drawAndTrack(ws, strokes, { cx, cy, zoom, name, description, skipWaypoint = false } = {}) {
+export async function drawAndTrack(ws, strokes, { cx, cy, zoom, name, description, skipWaypoint = false, absolute = false, swarm = false } = {}) {
   const drawingName = name || 'Drawing';
 
-  // 1. Auto-placement: find empty spot if no position specified
-  if (cx === undefined || cy === undefined) {
-    const spot = ws._authToken ? await autoFindSpace(ws._authToken) : null;
-    if (spot) {
-      // Add ±500 jitter to prevent concurrent bot collisions
-      if (cx === undefined) cx = spot.x + Math.round((Math.random() - 0.5) * 1000);
-      if (cy === undefined) cy = spot.y + Math.round((Math.random() - 0.5) * 1000);
-    } else {
-      // Fallback: random position in a large range
-      if (cx === undefined) cx = Math.round((Math.random() - 0.5) * 100_000);
-      if (cy === undefined) cy = Math.round((Math.random() - 0.5) * 100_000);
-    }
-  }
-
-  // Translate strokes to the chosen center
   const bbox = computeBoundingBox(strokes);
-  const strokeCx = Math.round((bbox.minX + bbox.maxX) / 2);
-  const strokeCy = Math.round((bbox.minY + bbox.maxY) / 2);
-  const dx = cx - strokeCx;
-  const dy = cy - strokeCy;
-  if (dx !== 0 || dy !== 0) {
-    for (const s of strokes) {
-      for (const pt of s.points) {
-        pt.x += dx;
-        pt.y += dy;
+
+  if (absolute) {
+    // Strokes are at final absolute coordinates — derive viewport from bbox
+    cx = Math.round((bbox.minX + bbox.maxX) / 2);
+    cy = Math.round((bbox.minY + bbox.maxY) / 2);
+    // No stroke translation — coordinates are already correct
+  } else {
+    // 1. Auto-placement: find empty spot if no position specified
+    if (cx === undefined || cy === undefined) {
+      const spot = ws._authToken ? await autoFindSpace(ws._authToken) : null;
+      if (spot) {
+        // Add ±500 jitter to prevent concurrent bot collisions
+        if (cx === undefined) cx = spot.x + Math.round((Math.random() - 0.5) * 1000);
+        if (cy === undefined) cy = spot.y + Math.round((Math.random() - 0.5) * 1000);
+      } else {
+        // Fallback: random position in a large range
+        if (cx === undefined) cx = Math.round((Math.random() - 0.5) * 100_000);
+        if (cy === undefined) cy = Math.round((Math.random() - 0.5) * 100_000);
+      }
+    }
+
+    // Translate strokes to the chosen center
+    const strokeCx = Math.round((bbox.minX + bbox.maxX) / 2);
+    const strokeCy = Math.round((bbox.minY + bbox.maxY) / 2);
+    const dx = cx - strokeCx;
+    const dy = cy - strokeCy;
+    if (dx !== 0 || dy !== 0) {
+      for (const s of strokes) {
+        for (const pt of s.points) {
+          pt.x += dx;
+          pt.y += dy;
+        }
       }
     }
   }
@@ -702,7 +721,7 @@ export async function drawAndTrack(ws, strokes, { cx, cy, zoom, name, descriptio
   }
 
   // 6. Send strokes
-  const result = await sendStrokes(ws, strokes);
+  const result = await sendStrokes(ws, strokes, { swarm });
 
   // 7. Capture snapshot
   try {

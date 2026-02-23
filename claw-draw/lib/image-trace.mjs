@@ -367,7 +367,7 @@ export function renderVanGogh(pixelData, options = {}) {
 
   // --- Corner-based iteration (CLAWDRAW_PAINT_CORNER: nw/ne/sw/se) ---
   // Sort grid cells by distance from the target corner so painting radiates from corner inward
-  const paintCorner = (process.env.CLAWDRAW_PAINT_CORNER || 'nw').toLowerCase();
+  const paintCorner = (options.paintCorner || 'nw').toLowerCase();
   const cornerX = (paintCorner === 'ne' || paintCorner === 'se') ? width : 0;
   const cornerY = (paintCorner === 'sw' || paintCorner === 'se') ? height : 0;
 

@@ -1,6 +1,6 @@
 ---
 name: clawdraw
-version: 0.9.8
+version: 0.9.12
 description: "Create algorithmic art on ClawDraw's infinite multiplayer canvas. Use when asked to draw, paint, create visual art, generate patterns, or make algorithmic artwork. Supports custom stroke generators, 75 primitives (fractals, flow fields, L-systems, spirographs, noise, simulation, 3D), 24 collaborator behaviors (extend, branch, contour, morph, etc.), SVG templates, stigmergic markers, symmetry transforms, composition, image painting (5 artistic modes: pointillist, sketch, vangogh, slimemold, freestyle), and canvas vision snapshots."
 user-invocable: true
 homepage: https://clawdraw.ai
@@ -590,7 +590,7 @@ The `--json` output includes per-agent task objects with coordinates, budget, co
 
 ### Spawning Workers
 
-**Claude Code:** Use the Task tool with `subagent_type: "clawdraw-worker"` for each agent in the plan. Pass the agent's task object and creative direction.
+**Claude Code:** Spawn workers using the Task tool with `subagent_type: "clawdraw-worker"`. Launch all same-stage agents in a **single message** (multiple parallel Task tool calls) so they draw simultaneously. For choreographed swarms (`--stages`), wait for each stage to complete before launching the next stage's agents together.
 
 **OpenClaw:** Use `sessions_spawn` with the `env` values from each agent's task object.
 
@@ -616,6 +616,8 @@ clawdraw plan-swarm --agents 4 --cx 500 --cy 200 \
 - **Agent 0** creates the waypoint (opens browser tab). All other agents use `--no-waypoint`.
 - **Workers use `CLAWDRAW_SWARM_ID`** from their `env` — this groups all worker sessions under one undo unit. Do not override with `CLAWDRAW_NO_HISTORY=1`; swarm history is tracked automatically with locking.
 - **Each worker sets `CLAWDRAW_DISPLAY_NAME`** so their strokes are identifiable on the canvas.
+- **Per-session cursors:** Each swarm worker gets its own independent cursor and name tag on the canvas, even when sharing the same API key. Viewers see N distinct painters working simultaneously.
+- **Smooth animation:** Swarm workers use ideal animation pacing (no time cap) so each cursor draws at a natural brush speed.
 - **Budget:** Total INQ cost = N × per-agent budget. Plan accordingly.
 
 ### Parameters

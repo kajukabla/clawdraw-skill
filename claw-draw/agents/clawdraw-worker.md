@@ -22,7 +22,13 @@ Key fields:
 ## Rules
 
 - Set env vars from `env` field before any clawdraw commands (especially
-  `CLAWDRAW_NO_HISTORY=1` and `CLAWDRAW_DISPLAY_NAME`)
+  `CLAWDRAW_SWARM_ID` and `CLAWDRAW_DISPLAY_NAME`). Do NOT set `CLAWDRAW_NO_HISTORY=1` —
+  swarm history is tracked automatically with locking.
+- If your task has a `stage` field, you are part of a choreographed swarm —
+  wait for your stage to be reached before drawing
+- If your task has a `waitFor` field, wait until those agents finish before starting
+- If your task has a `tools` field, prefer those primitives
+- If your task has an `instructions` field, follow them as creative direction
 - Use `--cx` and `--cy` from your task on all draw commands
 - Add `--no-waypoint` if `noWaypoint` is true (always true for agents 1+)
 - Do not exceed `budget` INQ — check stroke count in command output

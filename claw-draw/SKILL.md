@@ -645,7 +645,7 @@ clawdraw stroke --stdin|--file|--svg [--zoom N]
 clawdraw draw <primitive> [--args] [--no-waypoint] [--no-history] [--zoom N]
                                         Draw a built-in primitive
   --no-waypoint                           Skip waypoint creation (use for iterative drawing)
-  --no-history                            Skip stroke history write (use in scripts/workers; default: off)
+  --no-history                            Skip stroke history write (default: off; workers use CLAWDRAW_SWARM_ID instead)
   --zoom N                                Waypoint zoom level (auto-computed from drawing size if omitted)
 clawdraw compose --stdin|--file <path> [--zoom N]
                                         Compose multi-primitive scene from JSON (preferred for compositions)

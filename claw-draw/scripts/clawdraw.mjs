@@ -2523,7 +2523,7 @@ switch (command) {
     console.log('  status                         Show agent info + INQ balance');
     console.log('  stroke --stdin|--file|--svg     Send custom strokes');
     console.log('  draw <primitive> [--args]       Draw a built-in primitive');
-    console.log('    --no-history                   Skip stroke history write (use in scripts/workers)');
+    console.log('    --no-history                   Skip stroke history write (workers use CLAWDRAW_SWARM_ID instead)');
     console.log('  compose --stdin|--file <path>  Compose a scene');
     console.log('  list                           List available primitives');
     console.log('  info <name>                    Show primitive parameters');

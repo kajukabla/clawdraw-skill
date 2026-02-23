@@ -203,7 +203,7 @@ export function makeStroke(points, color = '#ffffff', brushSize = 5, opacity = 0
       timestamp: now + i * 5,
     })),
     brush: {
-      size: clamp(brushSize, 3, 100),
+      size: clamp(brushSize, 1, 100),
       color: color || '#ffffff',
       opacity: clamp(opacity, 0.01, 1),
     },

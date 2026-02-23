@@ -332,9 +332,9 @@ export function renderVanGogh(pixelData, options = {}) {
 
   const sobel = computeSobel(gray, width, height);
 
-  const spacing = Math.max(2, Math.round(6 / density));
-  const noiseFreq = 0.04;
-  const swirlStrength = 1.5;
+  const spacing = Math.max(1, Math.floor(2 / density));
+  const noiseFreq = 0.08;
+  const swirlStrength = 1.0;
 
   // Coverage tracking grid
   const covW = Math.ceil(width / spacing);
@@ -365,50 +365,78 @@ export function renderVanGogh(pixelData, options = {}) {
     return pts;
   }
 
-  // --- First pass: dense grid seeding ---
+  // --- Corner-based iteration (CLAWDRAW_PAINT_CORNER: nw/ne/sw/se) ---
+  // Sort grid cells by distance from the target corner so painting radiates from corner inward
+  const paintCorner = (process.env.CLAWDRAW_PAINT_CORNER || 'nw').toLowerCase();
+  const cornerX = (paintCorner === 'ne' || paintCorner === 'se') ? width : 0;
+  const cornerY = (paintCorner === 'sw' || paintCorner === 'se') ? height : 0;
+
+  // Collect all grid positions and sort by distance from corner
+  const gridCells = [];
   for (let gy = 0; gy < height; gy += spacing) {
     for (let gx = 0; gx < width; gx += spacing) {
-      const jx = (Math.random() - 0.5) * spacing;
-      const jy = (Math.random() - 0.5) * spacing;
-      const px = clamp(gx + jx, 0, width - 1);
-      const py = clamp(gy + jy, 0, height - 1);
-
-      const steps = 15 + Math.floor(Math.random() * 16); // 15–30 points
-      const pts = traceParticle(px, py, steps, 1.5);
-      if (pts.length < 3) continue;
-
-      const [r, g, b] = sampleRgb(rgba, px, py, width, height);
-      const grayVal = sampleGray(gray, px, py, width, height) / 255;
-      const idx = clamp(Math.round(py), 0, height - 1) * width + clamp(Math.round(px), 0, width - 1);
-      const contrast = clamp(sobel.magnitude[idx] / 400, 0, 1);
-      // Thicker in darker/flatter regions for full coverage
-      const brushSize = clamp(Math.round(4 + (1 - contrast) * 8 + (1 - grayVal) * 4), 3, 20);
-
-      strokes.push(makeStroke(pts, rgbToHex(r, g, b), brushSize, 0.85));
-
-      // Mark coverage cell
-      const ci = Math.floor(gy / spacing) * covW + Math.floor(gx / spacing);
-      if (ci >= 0 && ci < covered.length) covered[ci] = 1;
+      gridCells.push({ gx, gy });
     }
   }
+  gridCells.sort((a, b) => {
+    const da = (a.gx - cornerX) ** 2 + (a.gy - cornerY) ** 2;
+    const db = (b.gx - cornerX) ** 2 + (b.gy - cornerY) ** 2;
+    return da - db;
+  });
 
-  // --- Second pass: fill uncovered cells ---
+  // --- First pass: dense grid seeding (from corner outward) ---
+  for (const { gx, gy } of gridCells) {
+    const jx = (Math.random() - 0.5) * spacing;
+    const jy = (Math.random() - 0.5) * spacing;
+    const px = clamp(gx + jx, 0, width - 1);
+    const py = clamp(gy + jy, 0, height - 1);
+
+    const steps = 4 + Math.floor(Math.random() * 5); // 4–8 points
+    const pts = traceParticle(px, py, steps, 0.5);
+    if (pts.length < 3) continue;
+
+    const [r, g, b] = sampleRgb(rgba, px, py, width, height);
+    const grayVal = sampleGray(gray, px, py, width, height) / 255;
+    const idx = clamp(Math.round(py), 0, height - 1) * width + clamp(Math.round(px), 0, width - 1);
+    const contrast = clamp(sobel.magnitude[idx] / 400, 0, 1);
+    // Medium brushes for visible strokes with fine detail
+    const brushSize = clamp(Math.round(4 + (1 - contrast) * 3 + (1 - grayVal) * 3), 4, 10);
+
+    strokes.push(makeStroke(pts, rgbToHex(r, g, b), brushSize, 0.85));
+
+    // Mark coverage cell
+    const ci = Math.floor(gy / spacing) * covW + Math.floor(gx / spacing);
+    if (ci >= 0 && ci < covered.length) covered[ci] = 1;
+  }
+
+  // Collect fill-pass cells and sort by distance from corner
+  const fillCells = [];
   for (let ccy = 0; ccy < covH; ccy++) {
     for (let ccx = 0; ccx < covW; ccx++) {
-      if (covered[ccy * covW + ccx]) continue;
-
-      const px = clamp((ccx + 0.5) * spacing, 0, width - 1);
-      const py = clamp((ccy + 0.5) * spacing, 0, height - 1);
-
-      const pts = traceParticle(px, py, 12, 1.2);
-      if (pts.length < 3) continue;
-
-      const [r, g, b] = sampleRgb(rgba, px, py, width, height);
-      const grayVal = sampleGray(gray, px, py, width, height) / 255;
-      const brushSize = clamp(Math.round(6 + (1 - grayVal) * 6), 3, 18);
-
-      strokes.push(makeStroke(pts, rgbToHex(r, g, b), brushSize, 0.8));
+      if (!covered[ccy * covW + ccx]) fillCells.push({ ccx, ccy });
     }
+  }
+  fillCells.sort((a, b) => {
+    const ax = (a.ccx + 0.5) * spacing, ay = (a.ccy + 0.5) * spacing;
+    const bx = (b.ccx + 0.5) * spacing, by = (b.ccy + 0.5) * spacing;
+    const da = (ax - cornerX) ** 2 + (ay - cornerY) ** 2;
+    const db = (bx - cornerX) ** 2 + (by - cornerY) ** 2;
+    return da - db;
+  });
+
+  // --- Second pass: fill uncovered cells (from corner outward) ---
+  for (const { ccx, ccy } of fillCells) {
+    const px = clamp((ccx + 0.5) * spacing, 0, width - 1);
+    const py = clamp((ccy + 0.5) * spacing, 0, height - 1);
+
+    const pts = traceParticle(px, py, 4, 0.4);
+    if (pts.length < 2) continue;
+
+    const [r, g, b] = sampleRgb(rgba, px, py, width, height);
+    const grayVal = sampleGray(gray, px, py, width, height) / 255;
+    const brushSize = clamp(Math.round(4 + (1 - grayVal) * 3), 4, 8);
+
+    strokes.push(makeStroke(pts, rgbToHex(r, g, b), brushSize, 0.8));
   }
 
   return strokes;

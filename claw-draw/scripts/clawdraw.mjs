@@ -478,8 +478,10 @@ async function cmdStroke(args) {
   try {
     const token = await getToken(CLAWDRAW_API_KEY);
     const ws = await connect(token, { username: CLAWDRAW_DISPLAY_NAME });
+    const cx = args.cx !== undefined ? Number(args.cx) : undefined;
+    const cy = args.cy !== undefined ? Number(args.cy) : undefined;
     const zoom = args.zoom !== undefined ? Number(args.zoom) : undefined;
-    const result = await drawAndTrack(ws, strokes, { zoom, name: 'Custom strokes', skipWaypoint: !!args['no-waypoint'], swarm: !!CLAWDRAW_SWARM_ID });
+    const result = await drawAndTrack(ws, strokes, { cx, cy, zoom, name: 'Custom strokes', skipWaypoint: !!args['no-waypoint'], swarm: !!CLAWDRAW_SWARM_ID });
     markCustomAlgorithmUsed();
     if (result.strokesAcked > 0 && !args['no-history']) saveStrokeHistory(strokes);
     console.log(`Sent ${result.strokesAcked}/${result.strokesSent} stroke(s) accepted.`);

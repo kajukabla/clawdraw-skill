@@ -15,10 +15,10 @@
  *   clawdraw compose --file <path>      Compose scene from file
  *   clawdraw list                       List all primitives
  *   clawdraw info <name>                Show primitive parameters
- *   clawdraw scan [--cx N] [--cy N]     Scan nearby canvas for existing strokes
+ *   clawdraw scan [--cx N] [--cy N] [--detail summary|full|sdf]  Scan nearby canvas for existing strokes
  *   clawdraw look [--cx N] [--cy N] [--radius N]  Capture canvas screenshot as PNG
  *   clawdraw find-space [--mode empty|adjacent]  Find a spot on the canvas to draw
- *   clawdraw nearby [--x N] [--y N] [--radius N]  Analyze strokes near a point
+ *   clawdraw nearby [--x N] [--y N] [--radius N] [--detail summary|full|sdf]  Analyze strokes near a point
  *   clawdraw link                       Generate a link code to connect web account
  *   clawdraw buy [--tier <id>]           Buy INQ via Stripe checkout in browser
  *   clawdraw waypoint --name "..." --x N --y N --zoom Z [--description "..."]
@@ -54,7 +54,7 @@ import { getToken, createAgent, getAgentInfo, writeApiKey, readApiKey } from './
 import { connect, drawAndTrack, addWaypoint, getWaypointUrl, deleteStroke, deleteWaypoint, setUsername, disconnect } from './connection.mjs';
 import { parseSymmetryMode, applySymmetry } from './symmetry.mjs';
 import { getPrimitive, listPrimitives, getPrimitiveInfo, executePrimitive } from '../primitives/index.mjs';
-import { setNearbyCache } from '../primitives/collaborator.mjs';
+import * as collaborators from '../primitives/collaborator.mjs';
 import { makeStroke } from '../primitives/helpers.mjs';
 import { parseSvgPath, parseSvgPathMulti } from '../lib/svg-parse.mjs';
 import { traceImage, analyzeRegions } from '../lib/image-trace.mjs';
@@ -188,18 +188,26 @@ function withHistoryLock(fn) {
  * Each session records stroke IDs and chunk keys for undo.
  *
  * @param {Array} strokes - Array of stroke objects that were sent
+ * @param {Array<string>} [ackedStrokeIds] - Optional subset of IDs confirmed by server ack
  */
-function saveStrokeHistory(strokes) {
+function saveStrokeHistory(strokes, ackedStrokeIds) {
   if (CLAWDRAW_NO_HISTORY) return;
   withHistoryLock(() => {
     const sessions = loadStrokeHistory();
+    const ackedSet = Array.isArray(ackedStrokeIds) && ackedStrokeIds.length > 0
+      ? new Set(ackedStrokeIds.map(id => String(id)))
+      : null;
     const session = {
       timestamp: new Date().toISOString(),
       ...(CLAWDRAW_SWARM_ID ? { swarmId: CLAWDRAW_SWARM_ID } : {}),
       strokes: strokes.map(s => ({
         id: s.id,
         chunkKey: getChunkKey(s),
-      })).filter(s => s.id),
+      })).filter(s => {
+        if (!s.id) return false;
+        if (!ackedSet) return true;
+        return ackedSet.has(String(s.id));
+      }),
     };
     if (session.strokes.length === 0) return;
     sessions.push(session);
@@ -264,6 +272,93 @@ function normalizeStrokes(strokes) {
       s.brush?.opacity || 0.9,
     );
   });
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function isRetriableStatus(status) {
+  return status === 429 || status === 500 || status === 502 || status === 503 || status === 504;
+}
+
+async function readErrorMessage(res) {
+  try {
+    const data = await res.json();
+    return data.error || data.message || `HTTP ${res.status}`;
+  } catch {
+    return `HTTP ${res.status}`;
+  }
+}
+
+async function fetchJsonWithRetry(url, fetchOptions, {
+  retries = 3,
+  baseDelayMs = 250,
+  tag = 'request',
+} = {}) {
+  let lastError = null;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    let res = null;
+    try {
+      res = await fetch(url, fetchOptions);
+      if (res.ok) return await res.json();
+      const errMsg = await readErrorMessage(res);
+      if (attempt < retries && isRetriableStatus(res.status)) {
+        const waitMs = baseDelayMs * Math.pow(2, attempt);
+        console.warn(`[${tag}] retry ${attempt + 1}/${retries} after ${res.status} (${waitMs}ms)`);
+        await sleep(waitMs);
+        continue;
+      }
+      throw new Error(errMsg);
+    } catch (err) {
+      lastError = err;
+      const retriable = !res || isRetriableStatus(res.status);
+      if (attempt < retries && retriable) {
+        const waitMs = baseDelayMs * Math.pow(2, attempt);
+        console.warn(`[${tag}] retry ${attempt + 1}/${retries} after error (${waitMs}ms): ${err.message}`);
+        await sleep(waitMs);
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastError || new Error('Unknown fetch error');
+}
+
+async function fetchNearbyData(token, x, y, radius, detail = 'full', retries = 3) {
+  const q = `${RELAY_HTTP_URL}/api/nearby?x=${x}&y=${y}&radius=${radius}&detail=${encodeURIComponent(detail)}`;
+  return fetchJsonWithRetry(q, {
+    headers: { 'Authorization': `Bearer ${token}` },
+  }, {
+    retries,
+    baseDelayMs: 250,
+    tag: `nearby:${detail}`,
+  });
+}
+
+function isSourceParam(name) {
+  return name === 'source' || name === 'from' || name === 'to' || name === 'strokes';
+}
+
+function normalizeCollaboratorArg(name, value) {
+  if (!isSourceParam(name)) return value;
+  if (value === undefined || value === null) return value;
+  if (Array.isArray(value)) return value.map(v => String(v)).join(',');
+  return String(value).trim();
+}
+
+function normalizeNearbyStroke(stroke) {
+  const points = Array.isArray(stroke?.points) ? stroke.points : (Array.isArray(stroke?.path) ? stroke.path : []);
+  const color = stroke?.brush?.color || stroke?.color || '#ffffff';
+  const size = stroke?.brush?.size || stroke?.brushSize || 5;
+  return {
+    points,
+    brush: {
+      color,
+      size,
+      opacity: stroke?.brush?.opacity ?? stroke?.opacity ?? 1,
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -483,7 +578,7 @@ async function cmdStroke(args) {
     const zoom = args.zoom !== undefined ? Number(args.zoom) : undefined;
     const result = await drawAndTrack(ws, strokes, { cx, cy, zoom, name: 'Custom strokes', skipWaypoint: !!args['no-waypoint'], swarm: !!CLAWDRAW_SWARM_ID });
     markCustomAlgorithmUsed();
-    if (result.strokesAcked > 0 && !args['no-history']) saveStrokeHistory(strokes);
+    if (result.strokesAcked > 0 && !args['no-history']) saveStrokeHistory(strokes, result.ackedStrokeIds);
     console.log(`Sent ${result.strokesAcked}/${result.strokesSent} stroke(s) accepted.`);
     if (result.rejected > 0) {
       console.log(`  ${result.rejected} batch(es) rejected: ${result.errors.join(', ')}`);
@@ -539,7 +634,7 @@ async function cmdDraw(primitiveName, args) {
     const cy = args.cy !== undefined ? Number(args.cy) : undefined;
     const zoom = args.zoom !== undefined ? Number(args.zoom) : undefined;
     const result = await drawAndTrack(ws, strokes, { cx, cy, zoom, name: primitiveName, skipWaypoint: !!args['no-waypoint'], swarm: !!CLAWDRAW_SWARM_ID });
-    if (result.strokesAcked > 0 && !args['no-history']) saveStrokeHistory(strokes);
+    if (result.strokesAcked > 0 && !args['no-history']) saveStrokeHistory(strokes, result.ackedStrokeIds);
     console.log(`Drew ${primitiveName}: ${result.strokesAcked}/${result.strokesSent} stroke(s) accepted.`);
     if (result.rejected > 0) {
       console.log(`  ${result.rejected} batch(es) rejected: ${result.errors.join(', ')}`);
@@ -670,7 +765,7 @@ async function cmdCompose(args) {
     if (primitives.some(p => p.type === 'custom')) {
       markCustomAlgorithmUsed();
     }
-    if (result.strokesAcked > 0 && !args['no-history']) saveStrokeHistory(allStrokes);
+    if (result.strokesAcked > 0 && !args['no-history']) saveStrokeHistory(allStrokes, result.ackedStrokeIds);
 
     const sym = mode !== 'none' ? `, ${mode} symmetry` : '';
     console.log(`Composed: ${result.strokesAcked}/${result.strokesSent} stroke(s) accepted${sym}.`);
@@ -761,7 +856,11 @@ function colorName(hex) {
 }
 
 function analyzeStrokes(strokes) {
-  if (strokes.length === 0) {
+  const normalized = (strokes || [])
+    .map(normalizeNearbyStroke)
+    .filter(s => Array.isArray(s.points) && s.points.length > 0);
+
+  if (normalized.length === 0) {
     return {
       strokeCount: 0,
       description: 'The canvas is empty nearby. You have a blank slate.',
@@ -770,7 +869,7 @@ function analyzeStrokes(strokes) {
 
   // Spatial bounds
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-  for (const stroke of strokes) {
+  for (const stroke of normalized) {
     for (const pt of stroke.points || []) {
       minX = Math.min(minX, pt.x);
       maxX = Math.max(maxX, pt.x);
@@ -781,7 +880,7 @@ function analyzeStrokes(strokes) {
 
   // Color analysis
   const colorCounts = {};
-  for (const s of strokes) {
+  for (const s of normalized) {
     const c = s.brush?.color || '#ffffff';
     colorCounts[c] = (colorCounts[c] || 0) + 1;
   }
@@ -800,14 +899,14 @@ function analyzeStrokes(strokes) {
     .join(', ');
 
   // Brush size stats
-  const sizes = strokes.map(s => s.brush?.size || 5);
+  const sizes = normalized.map(s => s.brush?.size || 5);
   const avgSize = sizes.reduce((a, b) => a + b, 0) / sizes.length;
 
   const width = maxX - minX;
   const height = maxY - minY;
 
   return {
-    strokeCount: strokes.length,
+    strokeCount: normalized.length,
     boundingBox: {
       minX: Math.round(minX),
       maxX: Math.round(maxX),
@@ -818,7 +917,7 @@ function analyzeStrokes(strokes) {
     uniqueColors: colorsSorted.length,
     topColors,
     avgBrushSize: Math.round(avgSize * 10) / 10,
-    description: `${strokes.length} strokes spanning ${Math.round(width)}x${Math.round(height)} units. Colors: ${colorDesc}. Region: (${Math.round(minX)},${Math.round(minY)}) to (${Math.round(maxX)},${Math.round(maxY)}). Avg brush size: ${avgSize.toFixed(1)}.`,
+    description: `${normalized.length} strokes spanning ${Math.round(width)}x${Math.round(height)} units. Colors: ${colorDesc}. Region: (${Math.round(minX)},${Math.round(minY)}) to (${Math.round(maxX)},${Math.round(maxY)}). Avg brush size: ${avgSize.toFixed(1)}.`,
   };
 }
 
@@ -826,69 +925,44 @@ async function cmdScan(args) {
   const cx = Number(args.cx) || 0;
   const cy = Number(args.cy) || 0;
   const radius = Number(args.radius) || 600;
+  const detail = String(args.detail || 'full');
   const json = args.json || false;
+
+  if (!['summary', 'full', 'sdf'].includes(detail)) {
+    console.error('Error: --detail must be one of summary|full|sdf');
+    process.exit(1);
+  }
 
   try {
     const token = await getToken(CLAWDRAW_API_KEY);
-    const ws = await connect(token, {
-      username: CLAWDRAW_DISPLAY_NAME,
-      center: { x: cx, y: cy },
-      zoom: 0.2,
-    });
-
-    // Collect strokes from chunks.initial message
-    const strokes = await new Promise((resolve, reject) => {
-      const collected = [];
-      const timeout = setTimeout(() => resolve(collected), 3000);
-
-      ws.on('message', (data) => {
-        try {
-          const msg = JSON.parse(data);
-          if (msg.type === 'chunks.initial' && msg.chunks) {
-            for (const chunk of msg.chunks) {
-              for (const stroke of chunk.strokes || []) {
-                collected.push(stroke);
-              }
-            }
-            // Got chunk data — wait a brief moment for any additional messages
-            clearTimeout(timeout);
-            setTimeout(() => resolve(collected), 500);
-          }
-        } catch { /* ignore parse errors */ }
-      });
-
-      ws.on('error', () => {
-        clearTimeout(timeout);
-        resolve(collected);
-      });
-    });
-
-    disconnect(ws);
-
-    // Filter to strokes within the requested radius
-    const nearby = strokes.filter(s => {
-      if (!s.points || s.points.length === 0) return false;
-      const pt = s.points[0];
-      const dx = pt.x - cx;
-      const dy = pt.y - cy;
-      return Math.sqrt(dx * dx + dy * dy) <= radius;
-    });
+    const nearby = await fetchNearbyData(token, cx, cy, radius, detail, 3);
+    const strokes = Array.isArray(nearby.strokes) ? nearby.strokes : [];
+    let analysis = analyzeStrokes(strokes);
+    if (analysis.strokeCount === 0 && nearby.summary?.strokeCount > 0) {
+      analysis = {
+        strokeCount: nearby.summary.strokeCount,
+        description: `${nearby.summary.strokeCount} strokes nearby (summary/detail-only response).`,
+      };
+    }
 
     const result = {
       center: { x: cx, y: cy },
       radius,
-      totalInChunks: strokes.length,
-      ...analyzeStrokes(nearby),
+      detail,
+      totalInNearby: strokes.length,
+      ...analysis,
+      ...(nearby.summary ? { summary: nearby.summary } : {}),
     };
 
     if (json) {
       console.log(JSON.stringify(result, null, 2));
     } else {
       console.log('Canvas Scan');
-      console.log(`  Center: (${cx}, ${cy}), Radius: ${radius}`);
+      console.log(`  Center: (${cx}, ${cy}), Radius: ${radius}, Detail: ${detail}`);
       console.log(`  ${result.description}`);
       if (result.strokeCount > 0) {
-        console.log(`  Top colors: ${result.topColors.join(', ')}`);
+        if (result.topColors) console.log(`  Top colors: ${result.topColors.join(', ')}`);
+        if (nearby.summary?.palette?.length) console.log(`  Palette: ${nearby.summary.palette.join(', ')}`);
       }
     }
   } catch (err) {
@@ -1196,42 +1270,56 @@ async function cmdNearby(args) {
   const x = parseFloat(args.x || args.cx || '0');
   const y = parseFloat(args.y || args.cy || '0');
   const radius = parseFloat(args.radius || args.r || '500');
+  const detail = String(args.detail || 'full');
   const json = args.json || false;
+
+  if (!['summary', 'full', 'sdf'].includes(detail)) {
+    console.error('Error: --detail must be one of summary|full|sdf');
+    process.exit(1);
+  }
 
   try {
     const token = await getToken(CLAWDRAW_API_KEY);
-    const res = await fetch(`${RELAY_HTTP_URL}/api/nearby?x=${x}&y=${y}&radius=${radius}`, {
-      headers: { 'Authorization': `Bearer ${token}` },
-    });
-
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || `HTTP ${res.status}`);
-    }
-
-    const result = await res.json();
+    const result = await fetchNearbyData(token, x, y, radius, detail, 3);
 
     if (json) {
       console.log(JSON.stringify(result, null, 2));
       return result;
     }
 
-    console.log(`\n  Nearby (${x}, ${y}) radius=${radius}`);
-    console.log(`  Strokes: ${result.summary.strokeCount}`);
-    console.log(`  Density: ${result.summary.density.toFixed(2)} strokes/1000sq`);
-    console.log(`  Palette: ${result.summary.palette.join(', ')}`);
-    console.log(`  Flow: ${result.summary.dominantFlow}`);
-    console.log(`  Avg brush: ${result.summary.avgBrushSize.toFixed(1)}`);
-    console.log(`  Attach points: ${result.attachPoints.length}`);
-    console.log(`  Gaps: ${result.gaps.length}`);
+    const summary = result.summary || {};
+    const strokes = Array.isArray(result.strokes) ? result.strokes : [];
+    const attachPoints = Array.isArray(result.attachPoints) ? result.attachPoints : [];
+    const gaps = Array.isArray(result.gaps) ? result.gaps : [];
 
-    if (result.strokes.length > 0) {
-      console.log(`\n  Strokes (${result.strokes.length}):`);
-      for (const s of result.strokes.slice(0, 10)) {
-        console.log(`    ${s.id.slice(0,12)}.. ${s.shape} ${s.color} size=${s.brushSize}`);
+    console.log(`\n  Nearby (${x}, ${y}) radius=${radius} detail=${detail}`);
+    console.log(`  Strokes: ${summary.strokeCount ?? strokes.length ?? 0}`);
+    if (typeof summary.density === 'number') {
+      console.log(`  Density: ${summary.density.toFixed(2)} strokes/1000sq`);
+    }
+    if (Array.isArray(summary.palette)) {
+      console.log(`  Palette: ${summary.palette.join(', ')}`);
+    }
+    if (summary.dominantFlow) {
+      console.log(`  Flow: ${summary.dominantFlow}`);
+    }
+    if (typeof summary.avgBrushSize === 'number') {
+      console.log(`  Avg brush: ${summary.avgBrushSize.toFixed(1)}`);
+    }
+    console.log(`  Attach points: ${attachPoints.length}`);
+    console.log(`  Gaps: ${gaps.length}`);
+
+    if (strokes.length > 0) {
+      console.log(`\n  Strokes (${strokes.length}):`);
+      for (const s of strokes.slice(0, 10)) {
+        const sid = s?.id !== undefined && s?.id !== null ? String(s.id) : 'unknown';
+        const shape = s?.shape || 'stroke';
+        const color = s?.color || s?.brush?.color || '#ffffff';
+        const size = s?.brushSize ?? s?.brush?.size ?? '?';
+        console.log(`    ${sid.slice(0, 12)}.. ${shape} ${color} size=${size}`);
       }
-      if (result.strokes.length > 10) {
-        console.log(`    ... and ${result.strokes.length - 10} more`);
+      if (strokes.length > 10) {
+        console.log(`    ... and ${strokes.length - 10} more`);
       }
     }
 
@@ -1469,7 +1557,7 @@ async function cmdTemplate(args) {
     const ws = await connect(token, { username: CLAWDRAW_DISPLAY_NAME });
     const zoom = args.zoom !== undefined ? Number(args.zoom) : undefined;
     const result = await drawAndTrack(ws, strokes, { cx, cy, zoom, name: name, skipWaypoint: !!args['no-waypoint'], swarm: !!CLAWDRAW_SWARM_ID });
-    if (result.strokesAcked > 0 && !args['no-history']) saveStrokeHistory(strokes);
+    if (result.strokesAcked > 0 && !args['no-history']) saveStrokeHistory(strokes, result.ackedStrokeIds);
     console.log(`Drew template "${name}": ${result.strokesAcked}/${result.strokesSent} stroke(s) accepted.`);
     if (result.rejected > 0) {
       console.log(`  ${result.rejected} batch(es) rejected: ${result.errors.join(', ')}`);
@@ -1505,35 +1593,58 @@ async function cmdCollaborate(behaviorName, args) {
     process.exit(1);
   }
 
+  const fn = collaborators[behaviorName];
+  if (typeof fn !== 'function') {
+    console.error(`Unknown collaborator: ${behaviorName}`);
+    process.exit(1);
+  }
+  const entry = collaborators.METADATA.find(m => m.name === behaviorName);
+  if (!entry) {
+    console.error(`No metadata for collaborator: ${behaviorName}`);
+    process.exit(1);
+  }
+  const paramNames = Object.keys(entry.parameters || {});
+  const requiresSourceLookup = paramNames.some(isSourceParam);
+
   // Determine location from args
   const x = parseFloat(args.x || args.cx || args.nearX || args.atX || '0');
   const y = parseFloat(args.y || args.cy || args.nearY || args.atY || '0');
   const radius = parseFloat(args.radius || args.r || '500');
+  const detail = String(args.detail || (requiresSourceLookup ? 'full' : 'sdf'));
+
+  if (!['summary', 'full', 'sdf'].includes(detail)) {
+    console.error('Error: --detail must be one of summary|full|sdf');
+    process.exit(1);
+  }
 
   // Auto-fetch nearby data before executing behavior
   const token = await getToken(CLAWDRAW_API_KEY);
   let nearbyData;
   try {
-    const nearbyRes = await fetch(`${RELAY_HTTP_URL}/api/nearby?x=${x}&y=${y}&radius=${radius}&detail=sdf`, {
-      headers: { 'Authorization': `Bearer ${token}` },
-    });
-    if (!nearbyRes.ok) {
-      const err = await nearbyRes.json().catch(() => ({}));
-      throw new Error(err.error || `HTTP ${nearbyRes.status}`);
+    nearbyData = await fetchNearbyData(token, x, y, radius, detail, 3);
+    // Some source-driven behaviors depend on stable stroke IDs; if a non-full
+    // payload omits them, refetch in full detail once.
+    if (requiresSourceLookup && detail !== 'full') {
+      const hasIds = Array.isArray(nearbyData.strokes)
+        && nearbyData.strokes.some(s => s && s.id !== undefined && s.id !== null);
+      if (!hasIds) {
+        nearbyData = await fetchNearbyData(token, x, y, radius, 'full', 2);
+      }
     }
-    nearbyData = await nearbyRes.json();
   } catch (err) {
     console.error(`Failed to fetch nearby data: ${err.message}`);
     process.exit(1);
   }
 
   // Inject nearby cache into collaborator module
-  setNearbyCache(nearbyData);
+  collaborators.setNearbyCache(nearbyData);
 
-  // Execute behavior as primitive
+  // Call collaborator function directly — bypass primitive registry to avoid
+  // name collisions with community primitives (e.g. vineGrowth).
   let strokes;
   try {
-    strokes = executePrimitive(behaviorName, args);
+    const behaviorArgs = paramNames.map(p => normalizeCollaboratorArg(p, args[p]));
+    strokes = fn(...behaviorArgs);
   } catch (err) {
     console.error(`Error generating ${behaviorName}:`, err.message);
     process.exit(1);
@@ -1549,7 +1660,7 @@ async function cmdCollaborate(behaviorName, args) {
     const ws = await connect(token, { username: CLAWDRAW_DISPLAY_NAME });
     const zoom = args.zoom !== undefined ? Number(args.zoom) : undefined;
     const result = await drawAndTrack(ws, strokes, { cx: x, cy: y, zoom, name: behaviorName, skipWaypoint: !!args['no-waypoint'], swarm: !!CLAWDRAW_SWARM_ID });
-    if (result.strokesAcked > 0 && !args['no-history']) saveStrokeHistory(strokes);
+    if (result.strokesAcked > 0 && !args['no-history']) saveStrokeHistory(strokes, result.ackedStrokeIds);
     console.log(`  ${behaviorName}: ${result.strokesAcked}/${result.strokesSent} stroke(s) accepted.`);
     if (result.rejected > 0) {
       console.log(`  ${result.rejected} batch(es) rejected: ${result.errors.join(', ')}`);
@@ -2014,7 +2125,7 @@ async function cmdPaint(url, args) {
       skipWaypoint: !!args['no-waypoint'],
       swarm: !!CLAWDRAW_SWARM_ID,
     });
-    if (result.strokesAcked > 0 && !args['no-history']) saveStrokeHistory(strokes);
+    if (result.strokesAcked > 0 && !args['no-history']) saveStrokeHistory(strokes, result.ackedStrokeIds);
     console.log(`Painted ${mode}: ${result.strokesAcked}/${result.strokesSent} stroke(s) accepted.`);
     if (result.rejected > 0) {
       console.log(`  ${result.rejected} batch(es) rejected: ${result.errors.join(', ')}`);
@@ -2531,10 +2642,10 @@ switch (command) {
     console.log('  compose --stdin|--file <path>  Compose a scene');
     console.log('  list                           List available primitives');
     console.log('  info <name>                    Show primitive parameters');
-    console.log('  scan [--cx N] [--cy N]         Scan nearby canvas strokes');
+    console.log('  scan [--cx N] [--cy N] [--detail summary|full|sdf]  Scan nearby canvas strokes');
     console.log('  look [--cx N] [--cy N] [--radius N]   Capture a canvas screenshot as PNG');
     console.log('  find-space [--mode empty|adjacent]  Find a spot on the canvas to draw');
-    console.log('  nearby [--x N] [--y N] [--radius N]  Analyze strokes near a point');
+    console.log('  nearby [--x N] [--y N] [--radius N] [--detail summary|full|sdf]  Analyze strokes near a point');
     console.log('  link                           Generate link code for web account');
     console.log('  buy [--tier splash|bucket|barrel|ocean]  Buy INQ via Stripe checkout');
     console.log('  waypoint --name "..." --x N --y N --zoom Z  Drop a waypoint on the canvas');

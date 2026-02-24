@@ -755,7 +755,7 @@ export const METADATA = [
   },
   // SPATIAL
   {
-    name: 'physarum', description: 'Grow tube networks connecting exterior edges (slime mold simulation)', category: 'collaborator',
+    name: 'physarum', description: 'Grow slime-mold trails guided by exterior attractors and SDF surface tangents', category: 'collaborator',
     parameters: {
       nearX: { type: 'number', default: 0, description: 'Center X' },
       nearY: { type: 'number', default: 0, description: 'Center Y' },
@@ -791,7 +791,7 @@ export const METADATA = [
     },
   },
   {
-    name: 'attractorFlow', description: 'Flow field biased toward exterior attractors, repelled by dense areas', category: 'collaborator',
+    name: 'attractorFlow', description: 'Surface-aware flow lines biased by attractors and steered along SDF boundaries', category: 'collaborator',
     parameters: {
       nearX: { type: 'number', default: 0, description: 'Center X' },
       nearY: { type: 'number', default: 0, description: 'Center Y' },
@@ -1547,52 +1547,112 @@ export function counterpoint(source, offsetX, offsetY, amplitude, invertX) {
 // ---------------------------------------------------------------------------
 
 export function harmonize(nearX, nearY, radius, count, directionX, directionY) {
-  nearX = nearX || 0;
-  nearY = nearY || 0;
-  radius = radius || 300;
-  count = count || 3;
+  nearX = Number(nearX) || 0;
+  nearY = Number(nearY) || 0;
+  radius = clamp(Number(radius) || 300, 40, 3000);
+  count = clamp(Math.round(Number(count) || 3), 1, 16);
 
   const nc = _nearbyCache;
   if (!nc || !nc.strokes || nc.strokes.length < 2) return [];
 
-  // Filter strokes within radius
-  const nearby = nc.strokes.filter(s => {
-    const pts = s.path || s.points || [];
-    if (pts.length === 0) return false;
+  const entries = [];
+  const radius2 = radius * radius;
+  for (const s of nc.strokes) {
+    const pts = getStrokePoints(s);
+    if (pts.length < 2) continue;
     const c = centroid(pts);
     const dx = c.x - nearX;
     const dy = c.y - nearY;
-    return Math.sqrt(dx * dx + dy * dy) <= radius;
-  });
-
-  if (nearby.length < 2) return [];
-
-  // Analyze pattern: compute centroid offsets between consecutive strokes
-  const centroids = nearby.map(s => centroid(getStrokePoints(s)));
-  let avgDx = 0, avgDy = 0;
-  for (let i = 1; i < centroids.length; i++) {
-    avgDx += centroids[i].x - centroids[i - 1].x;
-    avgDy += centroids[i].y - centroids[i - 1].y;
+    if (dx * dx + dy * dy > radius2) continue;
+    entries.push({ stroke: s, points: pts, centroid: c, projection: 0 });
   }
-  avgDx /= (centroids.length - 1);
-  avgDy /= (centroids.length - 1);
+  if (entries.length < 2) return [];
 
-  // Override with explicit direction if provided
-  if (directionX !== undefined && directionX !== null) avgDx = directionX;
-  if (directionY !== undefined && directionY !== null) avgDy = directionY;
+  const dirXNum = directionX !== undefined && directionX !== null ? Number(directionX) : null;
+  const dirYNum = directionY !== undefined && directionY !== null ? Number(directionY) : null;
+  const hasDirX = isFinite(dirXNum);
+  const hasDirY = isFinite(dirYNum);
 
-  // Analyze average style from nearby strokes
-  const lastStroke = nearby[nearby.length - 1];
-  const lastPts = getStrokePoints(lastStroke);
-  const lastCentroid = centroids[centroids.length - 1];
-  const avgColor = getStrokeColor(lastStroke);
-  const avgSize = getStrokeBrushSize(lastStroke);
-  const avgOpacity = getStrokeOpacity(lastStroke);
+  let axis = null;
+  if (hasDirX || hasDirY) {
+    axis = normalizeVec(hasDirX ? dirXNum : 0, hasDirY ? dirYNum : 0, { x: 1, y: 0 });
+  }
+
+  if (!axis || (Math.abs(axis.x) + Math.abs(axis.y) < 1e-8)) {
+    // Estimate dominant axis from centroid covariance (PCA in 2D).
+    let meanX = 0;
+    let meanY = 0;
+    for (const e of entries) {
+      meanX += e.centroid.x;
+      meanY += e.centroid.y;
+    }
+    meanX /= entries.length;
+    meanY /= entries.length;
+
+    let covXX = 0;
+    let covXY = 0;
+    let covYY = 0;
+    for (const e of entries) {
+      const dx = e.centroid.x - meanX;
+      const dy = e.centroid.y - meanY;
+      covXX += dx * dx;
+      covXY += dx * dy;
+      covYY += dy * dy;
+    }
+    const theta = 0.5 * Math.atan2(2 * covXY, covXX - covYY);
+    axis = normalizeVec(Math.cos(theta), Math.sin(theta), { x: 1, y: 0 });
+  }
+
+  for (const e of entries) {
+    e.projection = (e.centroid.x - nearX) * axis.x + (e.centroid.y - nearY) * axis.y;
+  }
+  entries.sort((a, b) => a.projection - b.projection);
+
+  let avgDx = 0;
+  let avgDy = 0;
+  let avgSpacing = 0;
+  let spacingCount = 0;
+  for (let i = 1; i < entries.length; i++) {
+    const prev = entries[i - 1].centroid;
+    const curr = entries[i].centroid;
+    avgDx += curr.x - prev.x;
+    avgDy += curr.y - prev.y;
+    avgSpacing += Math.abs(entries[i].projection - entries[i - 1].projection);
+    spacingCount++;
+  }
+  avgDx /= Math.max(1, entries.length - 1);
+  avgDy /= Math.max(1, entries.length - 1);
+
+  if (hasDirX) avgDx = dirXNum;
+  if (hasDirY) avgDy = dirYNum;
+
+  let stepMag = Math.sqrt(avgDx * avgDx + avgDy * avgDy);
+  if (!isFinite(stepMag) || stepMag < 1e-5) {
+    const projStep = spacingCount > 0 ? avgSpacing / spacingCount : clamp(radius * 0.08, 8, 80);
+    avgDx = axis.x * projStep;
+    avgDy = axis.y * projStep;
+    stepMag = projStep;
+  }
+
+  const growthDir = normalizeVec(avgDx, avgDy, axis);
+  let anchor = entries[entries.length - 1];
+  let bestProj = -Infinity;
+  for (const e of entries) {
+    const p = e.centroid.x * growthDir.x + e.centroid.y * growthDir.y;
+    if (p > bestProj) {
+      bestProj = p;
+      anchor = e;
+    }
+  }
+  if (!anchor || !anchor.points || anchor.points.length < 2) return [];
+
+  const avgColor = getStrokeColor(anchor.stroke);
+  const avgSize = getStrokeBrushSize(anchor.stroke);
+  const avgOpacity = getStrokeOpacity(anchor.stroke);
 
   const strokes = [];
   for (let i = 1; i <= count; i++) {
-    // Offset points from last stroke
-    const shifted = lastPts.map(p => ({
+    const shifted = anchor.points.map(p => ({
       x: p.x + avgDx * i,
       y: p.y + avgDy * i,
     }));
@@ -1645,7 +1705,7 @@ export function fragment(source, pieces, scatter, opacityDecay) {
 
 export function outline(strokes, padding, style, color, brushSize) {
   padding = padding !== undefined ? padding : 20;
-  style = style || 'convex';
+  style = (style || 'convex').toLowerCase();
   brushSize = brushSize || 3;
 
   // Parse stroke IDs (comma-separated string)
@@ -1654,31 +1714,115 @@ export function outline(strokes, padding, style, color, brushSize) {
   if (!nc) return [];
 
   // Collect all points from specified strokes
+  const selectedStrokes = [];
   const allPts = [];
   for (const id of ids) {
     const s = findStroke(id, nc);
     if (s) {
+      selectedStrokes.push(s);
       for (const p of getStrokePoints(s)) {
         allPts.push(p);
       }
     }
   }
 
-  if (allPts.length < 3) return [];
+  if (selectedStrokes.length === 0 || allPts.length < 3) return [];
 
   // Default color from first found stroke
   if (!color) {
-    const first = findStroke(ids[0], nc);
+    const first = selectedStrokes[0];
     color = first ? getStrokeColor(first) : '#ffffff';
   }
 
-  // Compute convex hull
+  if (style === 'tight') {
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const p of allPts) {
+      if (p.x < minX) minX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y > maxY) maxY = p.y;
+    }
+    const localBounds = {
+      minX: minX - padding - 10,
+      minY: minY - padding - 10,
+      maxX: maxX + padding + 10,
+      maxY: maxY + padding + 10,
+    };
+
+    let tightPoly = null;
+    const faces = extractPlanarFaces(selectedStrokes, localBounds);
+    if (faces && faces.length > 0) {
+      faces.sort((a, b) => (b.area || 0) - (a.area || 0));
+      tightPoly = (faces[0].polygon || []).map((p) => ({ x: p.x, y: p.y }));
+    }
+
+    if ((!tightPoly || tightPoly.length < 3) && selectedStrokes.length === 1) {
+      const closedPts = getStrokePoints(selectedStrokes[0]);
+      if (closedPts.length >= 3) {
+        const first = closedPts[0];
+        const last = closedPts[closedPts.length - 1];
+        const closeD2 = (first.x - last.x) * (first.x - last.x) + (first.y - last.y) * (first.y - last.y);
+        if (closeD2 < 24 * 24) {
+          tightPoly = closedPts;
+        }
+      }
+    }
+
+    if (tightPoly && tightPoly.length >= 3) {
+      const first = tightPoly[0];
+      const last = tightPoly[tightPoly.length - 1];
+      const closeD2 = (first.x - last.x) * (first.x - last.x) + (first.y - last.y) * (first.y - last.y);
+      if (closeD2 < 1e-8) {
+        tightPoly = tightPoly.slice(0, -1);
+      }
+    }
+
+    if (tightPoly && tightPoly.length >= 3) {
+      const polyCenter = centroid(tightPoly);
+      const bb = shapeBounds(tightPoly);
+      const fieldBounds = {
+        minX: bb.minX - padding - 6,
+        minY: bb.minY - padding - 6,
+        maxX: bb.maxX + padding + 6,
+        maxY: bb.maxY + padding + 6,
+      };
+      const shape = {
+        polygon: tightPoly,
+        centroid: polyCenter,
+        area: shoelaceArea(tightPoly),
+        strokeIds: [],
+        bbox: bb,
+      };
+      const outlineField = buildSurfaceField(
+        [{ points: tightPoly.concat([{ x: tightPoly[0].x, y: tightPoly[0].y }]) }],
+        fieldBounds,
+        [shape],
+        clamp(Math.round(Math.max(bb.maxX - bb.minX, bb.maxY - bb.minY) / 2.2), 80, 150),
+      );
+
+      const expanded = tightPoly.map((p) => {
+        let n = outlineField.normal(p.x, p.y);
+        if (Math.abs(n.x) + Math.abs(n.y) < 1e-8) {
+          n = normalizeVec(p.x - polyCenter.x, p.y - polyCenter.y, { x: 1, y: 0 });
+        }
+        return {
+          x: p.x + n.x * padding,
+          y: p.y + n.y * padding,
+        };
+      });
+      expanded.push({ ...expanded[0] });
+      return [makeStroke(expanded, color, brushSize, 0.8)];
+    }
+  }
+
+  // Convex fallback
   const hull = convexHull(allPts);
   if (hull.length < 3) return [];
-
-  // Expand hull outward by padding
   const center = centroid(hull);
-  const expanded = hull.map(p => {
+  const expanded = hull.map((p) => {
     const dx = p.x - center.x;
     const dy = p.y - center.y;
     const d = Math.sqrt(dx * dx + dy * dy);
@@ -1688,10 +1832,7 @@ export function outline(strokes, padding, style, color, brushSize) {
       y: p.y + (dy / d) * padding,
     };
   });
-
-  // Close the loop
   expanded.push({ ...expanded[0] });
-
   return [makeStroke(expanded, color, brushSize, 0.8)];
 }
 
@@ -1706,7 +1847,8 @@ export function contour(source, lightAngle, style, layers, intensity) {
   if (pts.length < 2) return [];
 
   lightAngle = lightAngle !== undefined ? lightAngle : 315;
-  style = style || 'hatch';
+  style = (style || 'hatch').toLowerCase();
+  if (style !== 'crosshatch') style = 'hatch';
   layers = clamp(layers || 1, 1, 3);
   intensity = intensity !== undefined ? intensity : 0.7;
 
@@ -1727,7 +1869,9 @@ export function contour(source, lightAngle, style, layers, intensity) {
 
   const allStrokes = [];
 
-  const layerAngles = [0, Math.PI / 2, Math.PI / 4]; // primary, perpendicular, diagonal
+  const layerAngles = style === 'crosshatch'
+    ? [0, Math.PI / 2, Math.PI / 4] // crosshatch: orthogonal + diagonal
+    : [0, Math.PI / 8, -Math.PI / 8]; // hatch: subtle directional fan
 
   for (let layer = 0; layer < layers; layer++) {
     const layerAngleOffset = layerAngles[layer] || 0;
@@ -1754,12 +1898,18 @@ export function contour(source, lightAngle, style, layers, intensity) {
       const lit = (illumination + 1) / 2;
 
       // Spacing inversely proportional to shadow: dense in shadow, sparse in light
-      const spacing = 5 + lit * intensity * 15;
+      const spacingBase = style === 'crosshatch' ? 6 : 5;
+      const spacingSpan = style === 'crosshatch' ? 14 : 18;
+      const spacing = spacingBase + lit * intensity * spacingSpan;
       nextHatchDist = accumDist + spacing;
 
       // Skip only the most brightly-lit areas (always produce *some* hatching)
       if (lit > 0.92 && layer === 0) continue;
-      if (lit > 0.75 && layer > 0) continue;
+      if (style === 'crosshatch') {
+        if (lit > 0.75 && layer > 0) continue;
+      } else if (lit > 0.86 && layer > 0) {
+        continue;
+      }
 
       // Hatch line perpendicular to source path (with layer rotation)
       const tang = tangentAt(resampled, i);
@@ -1767,7 +1917,7 @@ export function contour(source, lightAngle, style, layers, intensity) {
       const hatchDirX = Math.cos(hatchAngle);
       const hatchDirY = Math.sin(hatchAngle);
 
-      const hatchLen = srcSize * 2;
+      const hatchLen = srcSize * (style === 'crosshatch' ? (2 - layer * 0.18) : (2.15 - layer * 0.08));
       const halfLen = hatchLen / 2;
       const cx = resampled[i].x;
       const cy = resampled[i].y;
@@ -1803,60 +1953,119 @@ export function contour(source, lightAngle, style, layers, intensity) {
 // ---------------------------------------------------------------------------
 
 export function physarum(nearX, nearY, radius, agents, steps, trailWidth, color) {
-  nearX = nearX || 0;
-  nearY = nearY || 0;
-  radius = radius || 300;
-  agents = clamp(agents || 30, 5, 100);
-  steps = clamp(steps || 50, 10, 200);
-  trailWidth = trailWidth || 3;
+  nearX = Number(nearX) || 0;
+  nearY = Number(nearY) || 0;
+  radius = clamp(Number(radius) || 300, 50, 2000);
+  agents = clamp(Math.round(Number(agents) || 30), 5, 100);
+  steps = clamp(Math.round(Number(steps) || 50), 10, 220);
+  trailWidth = clamp(Number(trailWidth) || 3, 1, 15);
   color = color || '#ffffff';
 
   const nc = _nearbyCache;
   if (!nc || !nc.strokes || nc.strokes.length === 0) return [];
 
-  // Build attractors from exterior endpoints
-  const attractors = buildAttractors(nc.strokes, Math.min(agents, 20));
-  if (attractors.length === 0) return [];
-
-  // Build density map for pheromone-like trail avoidance
   const bounds = {
     minX: nearX - radius, minY: nearY - radius,
     maxX: nearX + radius, maxY: nearY + radius,
   };
+  const shapes = collectSurfaceShapes(nc, bounds, 80);
+  const surface = buildSurfaceField(nc.strokes, bounds, shapes, clamp(Math.round(radius / 3), 100, 180));
   const density = buildDensityMap(nc.strokes, bounds, 32);
 
-  // Initialize virtual agents at center with random directions
+  const surfaceSeeds = buildSurfaceSeeds(
+    nc,
+    nearX,
+    nearY,
+    radius,
+    shapes,
+    surface,
+    Math.min(Math.max(agents, 14), 60),
+    { brushScale: 0.85 },
+  );
+  const endpointAttractors = buildAttractors(nc.strokes, Math.min(agents, 24));
+  const attractors = [];
+  for (const seed of surfaceSeeds) {
+    attractors.push({
+      x: seed.x,
+      y: seed.y,
+      direction: seed.dir,
+      strength: clamp(seed.strength, 0, 1),
+    });
+  }
+  for (const a of endpointAttractors) {
+    attractors.push({
+      x: a.x,
+      y: a.y,
+      direction: a.direction,
+      strength: clamp(a.strength, 0, 1),
+    });
+  }
+  if (attractors.length === 0) return [];
+
+  // Initialize virtual agents from surface-informed seed points.
   const agentState = [];
   for (let i = 0; i < agents; i++) {
-    const angle = (i / agents) * Math.PI * 2 + (noise2d(i * 0.7, 0.3) - 0.5) * 0.5;
+    const seed = surfaceSeeds.length > 0 ? surfaceSeeds[i % surfaceSeeds.length] : null;
+    const baseAngle = seed
+      ? Math.atan2(seed.dir.y, seed.dir.x)
+      : (i / agents) * Math.PI * 2;
+    const angle = baseAngle + (noise2d(i * 0.7, 0.3) - 0.5) * 0.8;
+    let x = nearX + (noise2d(i * 0.3, 1.7) - 0.5) * radius * 0.3;
+    let y = nearY + (noise2d(1.7, i * 0.3) - 0.5) * radius * 0.3;
+    if (seed) {
+      const spread = radius * 0.06;
+      const side = { x: -seed.dir.y, y: seed.dir.x };
+      const alongJ = (noise2d(i * 0.31, 2.9) - 0.5) * spread * 0.35;
+      const sideJ = (noise2d(2.9, i * 0.31) - 0.5) * spread * 0.5;
+      x = seed.x + seed.dir.x * alongJ + side.x * sideJ;
+      y = seed.y + seed.dir.y * alongJ + side.y * sideJ;
+    }
     agentState.push({
-      x: nearX + (noise2d(i * 0.3, 1.7) - 0.5) * radius * 0.3,
-      y: nearY + (noise2d(1.7, i * 0.3) - 0.5) * radius * 0.3,
+      x,
+      y,
       angle,
-      trail: [],
+      trail: [{ x, y }],
     });
   }
 
   const SENSOR_ANGLE = 22.5 * Math.PI / 180;
-  const SENSOR_DIST = radius * 0.08;
-  const STEP_SIZE = radius * 0.015;
+  const SENSOR_DIST = clamp(radius * 0.08, 8, 72);
+  const STEP_SIZE = clamp(radius * 0.013, 2.5, 22);
 
   // Simulate
   for (let step = 0; step < steps; step++) {
     for (const agent of agentState) {
       // Sense at three directions: ahead, left, right
-      const senseAhead = senseAttractors(agent.x, agent.y, agent.angle, SENSOR_DIST, attractors, density);
-      const senseLeft = senseAttractors(agent.x, agent.y, agent.angle - SENSOR_ANGLE, SENSOR_DIST, attractors, density);
-      const senseRight = senseAttractors(agent.x, agent.y, agent.angle + SENSOR_ANGLE, SENSOR_DIST, attractors, density);
+      const senseAhead = senseAttractors(agent.x, agent.y, agent.angle, SENSOR_DIST, attractors, density, surface, STEP_SIZE);
+      const senseLeft = senseAttractors(agent.x, agent.y, agent.angle - SENSOR_ANGLE, SENSOR_DIST, attractors, density, surface, STEP_SIZE);
+      const senseRight = senseAttractors(agent.x, agent.y, agent.angle + SENSOR_ANGLE, SENSOR_DIST, attractors, density, surface, STEP_SIZE);
 
       // Turn toward strongest signal
       if (senseLeft > senseAhead && senseLeft > senseRight) {
-        agent.angle -= SENSOR_ANGLE * 0.5;
+        agent.angle -= SENSOR_ANGLE * 0.55;
       } else if (senseRight > senseAhead && senseRight > senseLeft) {
-        agent.angle += SENSOR_ANGLE * 0.5;
+        agent.angle += SENSOR_ANGLE * 0.55;
       }
+
+      const sd0 = surface.signedDistance(agent.x, agent.y);
+      const ud0 = Math.abs(sd0);
+      if (isFinite(ud0) && ud0 < STEP_SIZE * 8) {
+        const normal = surface.normal(agent.x, agent.y);
+        const tangent = { x: -normal.y, y: normal.x };
+        const heading = { x: Math.cos(agent.angle), y: Math.sin(agent.angle) };
+        const tangentBlend = clamp(1 - ud0 / (STEP_SIZE * 8), 0, 1) * 0.45;
+        const signT = heading.x * tangent.x + heading.y * tangent.y >= 0 ? 1 : -1;
+        const insidePush = sd0 < 0 ? clamp((-sd0) / (STEP_SIZE * 2.5), 0, 1) : 0;
+        const steered = normalizeVec(
+          heading.x * (1 - tangentBlend) + tangent.x * signT * tangentBlend + normal.x * insidePush * 0.85,
+          heading.y * (1 - tangentBlend) + tangent.y * signT * tangentBlend + normal.y * insidePush * 0.85,
+          heading,
+        );
+        agent.angle = Math.atan2(steered.y, steered.x);
+      }
+
       // Add small random jitter
-      agent.angle += (noise2d(step * 0.1, agent.x * 0.01) - 0.5) * 0.3;
+      agent.angle += (noise2d(step * 0.1, agent.x * 0.01) - 0.5) * 0.25;
 
       // Move
       agent.x += Math.cos(agent.angle) * STEP_SIZE;
@@ -1866,10 +2075,18 @@ export function physarum(nearX, nearY, radius, agents, steps, trailWidth, color)
       const dx = agent.x - nearX;
       const dy = agent.y - nearY;
       const d = Math.sqrt(dx * dx + dy * dy);
-      if (d > radius) {
-        agent.x = nearX + (dx / d) * radius;
-        agent.y = nearY + (dy / d) * radius;
-        agent.angle += Math.PI * 0.5; // bounce
+      if (d > radius * 1.1) {
+        agent.x = nearX + (dx / d) * radius * 1.1;
+        agent.y = nearY + (dy / d) * radius * 1.1;
+        agent.angle += Math.PI * 0.55;
+      }
+
+      const sd1 = surface.signedDistance(agent.x, agent.y);
+      if (isFinite(sd1) && sd1 < STEP_SIZE * 0.28 && agent.trail.length > 6) {
+        const normal = surface.normal(agent.x, agent.y);
+        agent.x += normal.x * STEP_SIZE * 0.7;
+        agent.y += normal.y * STEP_SIZE * 0.7;
+        agent.angle += Math.PI * 0.62;
       }
 
       agent.trail.push({ x: agent.x, y: agent.y });
@@ -1881,12 +2098,12 @@ export function physarum(nearX, nearY, radius, agents, steps, trailWidth, color)
   for (const agent of agentState) {
     if (agent.trail.length < 3) continue;
     // Split trail into reasonable segments
-    const maxSegLen = 30;
+    const maxSegLen = 36;
     for (let i = 0; i < agent.trail.length; i += maxSegLen) {
       const seg = agent.trail.slice(i, Math.min(i + maxSegLen + 1, agent.trail.length));
       if (seg.length >= 2) {
         const t = i / agent.trail.length;
-        const opacity = clamp(0.4 + t * 0.4, 0.3, 0.85);
+        const opacity = clamp(0.35 + t * 0.45, 0.25, 0.85);
         strokes.push(makeStroke(seg, color, trailWidth, opacity, 'taper'));
       }
     }
@@ -1895,10 +2112,11 @@ export function physarum(nearX, nearY, radius, agents, steps, trailWidth, color)
   return strokes;
 }
 
-function senseAttractors(x, y, angle, dist, attractors, density) {
+function senseAttractors(x, y, angle, dist, attractors, density, surface, stepSize = 4) {
   const sx = x + Math.cos(angle) * dist;
   const sy = y + Math.sin(angle) * dist;
   let signal = 0;
+  const heading = { x: Math.cos(angle), y: Math.sin(angle) };
 
   // Attractor pull
   for (const a of attractors) {
@@ -1906,12 +2124,29 @@ function senseAttractors(x, y, angle, dist, attractors, density) {
     const dy = a.y - sy;
     const d2 = dx * dx + dy * dy;
     if (d2 < 1) continue;
-    signal += a.strength / (1 + d2 * 0.001);
+    const d = Math.sqrt(d2);
+    const align = (dx / d) * heading.x + (dy / d) * heading.y;
+    signal += a.strength * (1 + align * 0.35) / (1 + d2 * 0.001);
   }
 
   // Avoid dense areas
   const d = density.get(sx, sy);
   signal -= d * 2;
+
+  if (surface) {
+    const sd = surface.signedDistance(sx, sy);
+    const ud = Math.abs(sd);
+    if (isFinite(ud)) {
+      const n = surface.normal(sx, sy);
+      const tangent = { x: -n.y, y: n.x };
+      const nearW = clamp(1 - ud / Math.max(stepSize * 9, 1), 0, 1);
+      const tangentAlign = Math.abs(heading.x * tangent.x + heading.y * tangent.y);
+      signal += nearW * (0.45 + tangentAlign * 0.65);
+      if (sd < 0) {
+        signal -= clamp((-sd) / Math.max(stepSize * 2, 1), 0, 1) * 1.4;
+      }
+    }
+  }
 
   return signal;
 }
@@ -2071,41 +2306,91 @@ export function surfaceTrees(nearX, nearY, radius, length, generations, color, b
 // ---------------------------------------------------------------------------
 
 export function attractorFlow(nearX, nearY, radius, lines, steps, color, brushSize) {
-  nearX = nearX || 0;
-  nearY = nearY || 0;
-  radius = radius || 300;
-  lines = clamp(lines || 20, 3, 80);
-  steps = clamp(steps || 40, 10, 150);
+  const colorOverride = color;
+  const sizeOverride = brushSize;
+  nearX = Number(nearX) || 0;
+  nearY = Number(nearY) || 0;
+  radius = clamp(Number(radius) || 300, 50, 2000);
+  lines = clamp(Math.round(Number(lines) || 20), 3, 80);
+  steps = clamp(Math.round(Number(steps) || 40), 10, 180);
   color = color || '#ffffff';
-  brushSize = brushSize || 3;
+  brushSize = clamp(Number(brushSize) || 3, 1, 15);
 
   const nc = _nearbyCache;
   if (!nc || !nc.strokes || nc.strokes.length === 0) return [];
-
-  const attractors = buildAttractors(nc.strokes, 15);
-  if (attractors.length === 0) return [];
 
   const bounds = {
     minX: nearX - radius, minY: nearY - radius,
     maxX: nearX + radius, maxY: nearY + radius,
   };
+  const shapes = collectSurfaceShapes(nc, bounds, 80);
+  const surface = buildSurfaceField(nc.strokes, bounds, shapes, clamp(Math.round(radius / 3), 100, 185));
   const density = buildDensityMap(nc.strokes, bounds, 32);
+  const seeds = buildSurfaceSeeds(
+    nc,
+    nearX,
+    nearY,
+    radius,
+    shapes,
+    surface,
+    Math.min(lines * 2, 90),
+    { brushScale: 0.78 },
+  );
+  const endpointAttractors = buildAttractors(nc.strokes, 20);
+  const attractors = [];
+  for (const seed of seeds) {
+    attractors.push({
+      x: seed.x,
+      y: seed.y,
+      direction: seed.dir,
+      strength: clamp(seed.strength, 0, 1),
+    });
+  }
+  for (const a of endpointAttractors) {
+    attractors.push({
+      x: a.x,
+      y: a.y,
+      direction: a.direction,
+      strength: clamp(a.strength, 0, 1),
+    });
+  }
+  if (attractors.length === 0) return [];
 
-  const stepSize = radius * 0.02;
+  const stepSize = clamp(radius * 0.018, 2.5, 28);
   const strokes = [];
 
   for (let i = 0; i < lines; i++) {
-    // Start lines distributed in a ring around center
-    const startAngle = (i / lines) * Math.PI * 2;
-    const startR = radius * (0.2 + noise2d(i * 0.7, 0.5) * 0.3);
-    let x = nearX + Math.cos(startAngle) * startR;
-    let y = nearY + Math.sin(startAngle) * startR;
+    const seed = seeds.length > 0 ? seeds[i % seeds.length] : null;
+    let x;
+    let y;
+    let heading;
+
+    if (seed) {
+      const startJitter = (noise2d(i * 0.73, 0.41) - 0.5) * stepSize;
+      x = seed.x + seed.dir.x * (2 + startJitter);
+      y = seed.y + seed.dir.y * (2 + startJitter);
+      heading = { x: seed.dir.x, y: seed.dir.y };
+    } else {
+      // Fallback: ring around center
+      const startAngle = (i / lines) * Math.PI * 2;
+      const startR = radius * (0.2 + noise2d(i * 0.7, 0.5) * 0.3);
+      x = nearX + Math.cos(startAngle) * startR;
+      y = nearY + Math.sin(startAngle) * startR;
+      heading = { x: Math.cos(startAngle), y: Math.sin(startAngle) };
+    }
 
     const pts = [{ x, y }];
+    const lineColor = colorOverride && colorOverride !== '#ffffff'
+      ? color
+      : (seed ? seed.color : color);
+    const lineSize = sizeOverride !== undefined && sizeOverride !== null
+      ? brushSize
+      : clamp(seed ? seed.brushSize * 0.85 : brushSize, 1, 20);
 
     for (let s = 0; s < steps; s++) {
-      // Compute flow direction: sum of attractor pulls minus density repulsion
-      let fx = 0, fy = 0;
+      // Compute flow direction: attractor pull + previous heading + density/surface steering.
+      let fx = heading.x * 0.6;
+      let fy = heading.y * 0.6;
 
       for (const a of attractors) {
         const adx = a.x - x;
@@ -2113,15 +2398,36 @@ export function attractorFlow(nearX, nearY, radius, lines, steps, color, brushSi
         const d2 = adx * adx + ady * ady;
         if (d2 < 1) continue;
         const d = Math.sqrt(d2);
-        fx += (adx / d) * a.strength / (1 + d * 0.01);
-        fy += (ady / d) * a.strength / (1 + d * 0.01);
+        fx += (adx / d) * a.strength / (1 + d * 0.012);
+        fy += (ady / d) * a.strength / (1 + d * 0.012);
       }
 
-      // Repel from dense areas using density gradient approximation
+      // Repel from dense areas using density gradient approximation.
       const gx = density.get(x + 5, y) - density.get(x - 5, y);
       const gy = density.get(x, y + 5) - density.get(x, y - 5);
       fx -= gx * 3;
       fy -= gy * 3;
+
+      // Surface-aware steering: follow tangents near boundaries; push outward if inside.
+      const signedDist = surface.signedDistance(x, y);
+      const unsignedDist = Math.abs(signedDist);
+      if (isFinite(unsignedDist)) {
+        const normal = surface.normal(x, y);
+        const tangent = { x: -normal.y, y: normal.x };
+        const nearW = clamp(1 - unsignedDist / (stepSize * 8), 0, 1);
+        if (nearW > 0) {
+          const dot = fx * tangent.x + fy * tangent.y;
+          const signT = dot >= 0 ? 1 : -1;
+          const tangentBlend = nearW * 0.72;
+          fx = fx * (1 - tangentBlend) + tangent.x * signT * tangentBlend;
+          fy = fy * (1 - tangentBlend) + tangent.y * signT * tangentBlend;
+        }
+        if (signedDist < 0) {
+          const insidePush = clamp((-signedDist) / (stepSize * 2.5), 0, 1);
+          fx += normal.x * insidePush * 1.25;
+          fy += normal.y * insidePush * 1.25;
+        }
+      }
 
       // Add curl noise for organic feel
       const noiseAngle = noise2d(x * 0.005, y * 0.005) * Math.PI * 2;
@@ -2131,20 +2437,23 @@ export function attractorFlow(nearX, nearY, radius, lines, steps, color, brushSi
       // Normalize and step
       const fLen = Math.sqrt(fx * fx + fy * fy);
       if (fLen < 1e-6) break;
-      x += (fx / fLen) * stepSize;
-      y += (fy / fLen) * stepSize;
+      heading = { x: fx / fLen, y: fy / fLen };
+      x += heading.x * stepSize;
+      y += heading.y * stepSize;
 
       // Check bounds
       const dx = x - nearX;
       const dy = y - nearY;
-      if (dx * dx + dy * dy > radius * radius) break;
+      if (dx * dx + dy * dy > radius * radius * 1.8) break;
+      if (s > 5 && surface.unsignedDistance(x, y) < stepSize * 0.25) break;
 
       pts.push({ x, y });
     }
 
     if (pts.length >= 3) {
-      const opacity = clamp(0.5 + noise2d(i * 1.3, 0.7) * 0.3, 0.3, 0.85);
-      strokes.push(makeStroke(pts, color, brushSize, opacity, 'taper'));
+      const seedStrength = seed ? clamp(seed.strength, 0, 1) : 0.5;
+      const opacity = clamp(0.35 + seedStrength * 0.4 + noise2d(i * 1.3, 0.7) * 0.18, 0.25, 0.9);
+      strokes.push(makeStroke(pts, lineColor, lineSize, opacity, 'taper'));
     }
   }
 
@@ -2156,12 +2465,13 @@ export function attractorFlow(nearX, nearY, radius, lines, steps, color, brushSi
 // ---------------------------------------------------------------------------
 
 export function interiorFill(nearX, nearY, radius, style, density, color, brushSize) {
-  nearX = nearX || 0;
-  nearY = nearY || 0;
-  radius = radius || 300;
-  style = style || 'hatch';
+  nearX = Number(nearX) || 0;
+  nearY = Number(nearY) || 0;
+  radius = clamp(Number(radius) || 300, 50, 2000);
+  style = (style || 'hatch').toLowerCase();
+  if (!['hatch', 'stipple', 'wash'].includes(style)) style = 'hatch';
   density = density !== undefined ? clamp(density, 0.1, 1) : 0.5;
-  brushSize = brushSize || 2;
+  brushSize = clamp(Number(brushSize) || 2, 1, 12);
 
   // Default color: prefer dominant palette color from nearby data, fall back to white
   if (!color || color === '#ffffff') {
@@ -2224,9 +2534,43 @@ export function interiorFill(nearX, nearY, radius, style, density, color, brushS
     const polyW = pMaxX - pMinX;
     const polyH = pMaxY - pMinY;
     const diagonal = Math.sqrt(polyW * polyW + polyH * polyH);
+    let cleanPoly = polygon.map((p) => ({ x: p.x, y: p.y }));
+    if (cleanPoly.length >= 2) {
+      const first = cleanPoly[0];
+      const last = cleanPoly[cleanPoly.length - 1];
+      const d2 = (first.x - last.x) * (first.x - last.x) + (first.y - last.y) * (first.y - last.y);
+      if (d2 < 1e-8) cleanPoly = cleanPoly.slice(0, -1);
+    }
+    if (cleanPoly.length < 3) continue;
+    const shapeBBox = shapeBounds(cleanPoly);
+    const localShape = {
+      polygon: cleanPoly,
+      centroid: { x: cx, y: cy },
+      area: shape.area || shoelaceArea(cleanPoly),
+      strokeIds: shape.strokeIds || [],
+      bbox: shapeBBox,
+    };
+    const fieldPad = Math.max(8, brushSize * 4);
+    const localBounds = {
+      minX: shapeBBox.minX - fieldPad,
+      minY: shapeBBox.minY - fieldPad,
+      maxX: shapeBBox.maxX + fieldPad,
+      maxY: shapeBBox.maxY + fieldPad,
+    };
+    const shapeField = buildSurfaceField(
+      [{ points: cleanPoly.concat([{ x: cleanPoly[0].x, y: cleanPoly[0].y }]) }],
+      localBounds,
+      [localShape],
+      clamp(Math.round(Math.max(polyW, polyH) / 2.2), 80, 150),
+    );
+    const edgeWeight = (x, y, falloff) => {
+      const d = shapeField.unsignedDistance(x, y);
+      if (!isFinite(d)) return 0;
+      return clamp(d / Math.max(falloff, 1), 0, 1);
+    };
 
     if (style === 'hatch') {
-      // Generate hatch lines with gradient: stroke color → darker shade, fading opacity
+      // Generate hatch lines with gradient and edge-distance weighting.
       const spacing = lerp(15, 4, density);
       const angle = 45 * Math.PI / 180;
       const cos = Math.cos(angle);
@@ -2250,31 +2594,45 @@ export function interiorFill(nearX, nearY, radius, style, density, color, brushS
         for (const [segStart, segEnd] of segments) {
           const segLen = Math.sqrt((segEnd.x - segStart.x) ** 2 + (segEnd.y - segStart.y) ** 2);
           if (segLen > 3) {
+            const mid = {
+              x: (segStart.x + segEnd.x) * 0.5,
+              y: (segStart.y + segEnd.y) * 0.5,
+            };
+            const ew = edgeWeight(mid.x, mid.y, spacing * 2.4);
+            const weightedOpacity = hatchOpacity * (0.35 + ew * 0.65);
+            const weightedSize = brushSize * (0.75 + ew * 0.45);
             strokes.push(makeStroke(
               [segStart, segEnd],
-              hatchColor, brushSize, hatchOpacity, 'flat'
+              hatchColor, weightedSize, weightedOpacity, 'flat'
             ));
           }
         }
         stepIndex++;
       }
     } else if (style === 'stipple') {
-      // Generate random dots — only emit if inside polygon
-      const count = Math.round((shape.area || polyW * polyH) * density * 0.01);
-      for (let i = 0; i < count; i++) {
+      // Generate random dots, weighted by SDF distance from boundary.
+      const dotCount = Math.round((shape.area || polyW * polyH) * density * 0.012);
+      for (let i = 0; i < dotCount; i++) {
         const px = pMinX + noise2d(i * 0.7, cx * 0.01) * polyW;
         const py = pMinY + noise2d(cx * 0.01, i * 0.7) * polyH;
         if (!pointInPolygon(px, py, polygon)) continue;
+        const ew = edgeWeight(px, py, Math.max(brushSize * 5, 10));
+        const acceptance = 0.2 + ew * 0.8;
+        const pick = noise2d(px * 0.03 + i * 0.11, py * 0.03 + i * 0.17);
+        if (pick > acceptance) continue;
+        const dotSize = brushSize * (0.6 + ew * 0.6);
+        const dotOpacity = clamp(0.15 + ew * 0.55 + noise2d(i * 0.3, 0.5) * 0.18, 0.12, 0.85);
+        const dotDelta = Math.max(0.6, dotSize * 0.35);
         strokes.push(makeStroke(
-          [{ x: px, y: py }, { x: px + 1, y: py + 1 }],
-          shapeColor, brushSize, clamp(0.3 + noise2d(i * 0.3, 0.5) * 0.4, 0.2, 0.7)
+          [{ x: px, y: py }, { x: px + dotDelta, y: py + dotDelta }],
+          shapeColor, dotSize, dotOpacity
         ));
       }
     } else if (style === 'wash') {
-      // Generate overlapping soft strokes — start points checked against polygon
+      // Generate overlapping soft strokes with edge falloff.
       const regionRadius = Math.max(polyW, polyH) / 2;
-      const count = Math.round(5 + density * 10);
-      for (let i = 0; i < count; i++) {
+      const washCount = Math.round(5 + density * 10);
+      for (let i = 0; i < washCount; i++) {
         const angle = noise2d(i * 0.5, cy * 0.01) * Math.PI * 2;
         const len = regionRadius * (0.5 + noise2d(i * 0.3, 0.7) * 0.5);
         const startX = cx + (noise2d(i * 0.7, 1.3) - 0.5) * regionRadius * 0.5;
@@ -2282,20 +2640,28 @@ export function interiorFill(nearX, nearY, radius, style, density, color, brushS
 
         // Only start inside the polygon
         if (!pointInPolygon(startX, startY, polygon)) continue;
+        if (edgeWeight(startX, startY, regionRadius * 0.5) < 0.06) continue;
 
         const pts = [];
         const nPts = 15;
+        let edgeAccum = 0;
         for (let j = 0; j <= nPts; j++) {
           const t = j / nPts;
           const wx = startX + Math.cos(angle) * len * t + (noise2d(j * 0.3, i * 0.7) - 0.5) * 10;
           const wy = startY + Math.sin(angle) * len * t + (noise2d(i * 0.7, j * 0.3) - 0.5) * 10;
           // Stop if waypoint exits the polygon
           if (!pointInPolygon(wx, wy, polygon)) break;
+          const ew = edgeWeight(wx, wy, regionRadius * 0.5);
+          if (ew < 0.03) break;
+          edgeAccum += ew;
           pts.push({ x: wx, y: wy });
         }
 
         if (pts.length >= 2) {
-          strokes.push(makeStroke(pts, shapeColor, brushSize * 3, 0.15 + density * 0.2));
+          const avgEdge = edgeAccum / pts.length;
+          const washOpacity = clamp((0.09 + density * 0.2) * (0.45 + avgEdge * 0.8), 0.06, 0.45);
+          const washSize = brushSize * (1.9 + avgEdge * 1.5);
+          strokes.push(makeStroke(pts, shapeColor, washSize, washOpacity));
         }
       }
     }

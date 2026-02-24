@@ -142,10 +142,15 @@ export async function getToken(apiKey) {
  * @returns {Promise<{ apiKey: string, agentId: string, name: string }>}
  */
 export async function createAgent(name) {
+  // Pass existing API key (if any) to bypass rate limits for linked admin accounts
+  const existingKey = readApiKey();
+  const payload = { name };
+  if (existingKey) payload.existingApiKey = existingKey;
+
   const res = await fetch(`${LOGIC_URL}/api/agents`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name }),
+    body: JSON.stringify(payload),
   });
 
   if (!res.ok) {

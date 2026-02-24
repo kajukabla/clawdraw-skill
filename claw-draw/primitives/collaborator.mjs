@@ -257,6 +257,289 @@ function convexHull(points) {
   return lower.concat(upper);
 }
 
+function normalizeVec(x, y, fallback = { x: 1, y: 0 }) {
+  const len = Math.sqrt(x * x + y * y);
+  if (len < 1e-8) return { x: fallback.x, y: fallback.y };
+  return { x: x / len, y: y / len };
+}
+
+function rgbToHsl(r, g, b) {
+  r /= 255;
+  g /= 255;
+  b /= 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  let h = 0;
+  let s = 0;
+  const l = (max + min) / 2;
+  if (max !== min) {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+    else if (max === g) h = ((b - r) / d + 2) / 6;
+    else h = ((r - g) / d + 4) / 6;
+  }
+  return { h: h * 360, s: s * 100, l: l * 100 };
+}
+
+function shapeBounds(polygon) {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const p of polygon) {
+    if (p.x < minX) minX = p.x;
+    if (p.y < minY) minY = p.y;
+    if (p.x > maxX) maxX = p.x;
+    if (p.y > maxY) maxY = p.y;
+  }
+  return { minX, minY, maxX, maxY };
+}
+
+function collectSurfaceShapes(nc, bounds, maxShapes = 64) {
+  if (!nc || !nc.strokes || nc.strokes.length === 0) return [];
+
+  let rawShapes = [];
+  if (nc.topology) {
+    rawShapes = detectClosedShapes(nc);
+  }
+  if (!rawShapes || rawShapes.length === 0) {
+    rawShapes = extractPlanarFaces(nc.strokes, bounds);
+  }
+
+  const normalized = [];
+  for (const shape of rawShapes) {
+    const polygon = (shape.polygon || []).map((p) => ({ x: p.x, y: p.y }));
+    if (polygon.length < 3) continue;
+    const bbox = shapeBounds(polygon);
+    const area = Math.max(0, Number(shape.area) || shoelaceArea(polygon));
+    if (!isFinite(area) || area < 16) continue;
+    const c =
+      shape.centroid && isFinite(shape.centroid.x) && isFinite(shape.centroid.y)
+        ? { x: shape.centroid.x, y: shape.centroid.y }
+        : centroid(polygon);
+    normalized.push({
+      polygon,
+      centroid: c,
+      area,
+      strokeIds: Array.isArray(shape.strokeIds) ? shape.strokeIds : [],
+      bbox,
+    });
+  }
+
+  normalized.sort((a, b) => b.area - a.area);
+  return normalized.slice(0, maxShapes);
+}
+
+function pointInShapeFast(shape, x, y) {
+  const bb = shape.bbox;
+  if (!bb || x < bb.minX || x > bb.maxX || y < bb.minY || y > bb.maxY) return false;
+  return pointInPolygon(x, y, shape.polygon);
+}
+
+function buildSurfaceField(strokes, bounds, shapes, resolution = 120) {
+  const sdf = buildSDF(strokes, bounds, resolution);
+  const probe = Math.max(
+    (bounds.maxX - bounds.minX) / resolution,
+    (bounds.maxY - bounds.minY) / resolution,
+    1,
+  );
+
+  function isInsideClosed(x, y) {
+    for (const shape of shapes) {
+      if (pointInShapeFast(shape, x, y)) return true;
+    }
+    return false;
+  }
+
+  function unsignedDistance(x, y) {
+    const d = Math.abs(sdf.query(x, y));
+    return Number.isFinite(d) ? d : Infinity;
+  }
+
+  function signedDistance(x, y) {
+    const d = unsignedDistance(x, y);
+    if (!isFinite(d)) return d;
+    return isInsideClosed(x, y) ? -d : d;
+  }
+
+  function normal(x, y) {
+    const g = sdf.gradient(x, y);
+    const n = normalizeVec(g.x, g.y, { x: 0, y: 0 });
+    if (Math.abs(n.x) + Math.abs(n.y) < 1e-8) return { x: 0, y: 0 };
+
+    // Orient toward increasing signed distance (outward from closed regions).
+    const fwd = signedDistance(x + n.x * probe, y + n.y * probe);
+    const bwd = signedDistance(x - n.x * probe, y - n.y * probe);
+    return fwd >= bwd ? n : { x: -n.x, y: -n.y };
+  }
+
+  function tangent(x, y) {
+    const n = normal(x, y);
+    return { x: -n.y, y: n.x };
+  }
+
+  return {
+    resolution,
+    unsignedDistance,
+    signedDistance,
+    isInsideClosed,
+    normal,
+    tangent,
+  };
+}
+
+function buildSurfaceSeeds(
+  nc,
+  nearX,
+  nearY,
+  radius,
+  surfaceShapes,
+  surfaceField,
+  maxSeeds = 24,
+  style = {},
+) {
+  if (!nc || !nc.strokes || nc.strokes.length === 0) return [];
+
+  const candidates = [];
+  const radius2 = (radius * 1.45) * (radius * 1.45);
+  const addCandidate = (cand) => {
+    if (!cand) return;
+    if (!isFinite(cand.x) || !isFinite(cand.y)) return;
+    if (!isFinite(cand.dir?.x) || !isFinite(cand.dir?.y)) return;
+    const dx = cand.x - nearX;
+    const dy = cand.y - nearY;
+    if (dx * dx + dy * dy > radius2) return;
+    candidates.push(cand);
+  };
+
+  // Exterior endpoint attractors
+  const attractors = buildAttractors(nc.strokes, Math.max(maxSeeds * 3, 24));
+  for (const attr of attractors) {
+    const dir = normalizeVec(attr.direction?.x || 0, attr.direction?.y || 0, { x: 1, y: 0 });
+    const src = findNearestStroke(attr.x, attr.y, nc);
+    addCandidate({
+      x: attr.x + dir.x * 2,
+      y: attr.y + dir.y * 2,
+      dir,
+      strength: 0.55 + clamp(attr.strength || 0, 0, 1) * 0.55,
+      sourceStroke: src,
+    });
+  }
+
+  // Richer endpoint classification (captures open-space edge direction)
+  const endpointInfo = classifyEndpoints(nc.strokes, clamp(radius * 0.22, 45, 130));
+  for (const ep of endpointInfo.exterior || []) {
+    let dir = normalizeVec(
+      ep.growthDir?.x || 0,
+      ep.growthDir?.y || 0,
+      { x: Math.cos(ep.angle || 0), y: Math.sin(ep.angle || 0) },
+    );
+    if (Math.abs(dir.x) + Math.abs(dir.y) < 1e-8) {
+      const n = surfaceField.normal(ep.x, ep.y);
+      dir = normalizeVec(n.x, n.y);
+    }
+    const src = findStrokeById(ep.strokeId, nc) || findNearestStroke(ep.x, ep.y, nc);
+    addCandidate({
+      x: ep.x + dir.x * 2,
+      y: ep.y + dir.y * 2,
+      dir,
+      strength: 0.7 + clamp((ep.emptySectors - 3) / 5, 0, 1) * 0.45,
+      sourceStroke: src,
+    });
+  }
+
+  // Closed-shape boundaries (grows out of surfaces, not just endpoints)
+  const areaNorm = Math.max(1, Math.PI * radius * radius * 0.25);
+  for (const shape of surfaceShapes) {
+    const poly = shape.polygon;
+    if (!poly || poly.length < 3) continue;
+    const samples = clamp(Math.round(Math.sqrt(shape.area) / 26), 3, 14);
+    const step = Math.max(1, Math.floor(poly.length / samples));
+    const shapeStrength = clamp(shape.area / areaNorm, 0, 1);
+
+    for (let i = 0; i < poly.length; i += step) {
+      const p = poly[i];
+      let n = surfaceField.normal(p.x, p.y);
+      if (Math.abs(n.x) + Math.abs(n.y) < 1e-8) {
+        n = normalizeVec(p.x - shape.centroid.x, p.y - shape.centroid.y, { x: 1, y: 0 });
+      }
+      const src =
+        (shape.strokeIds && shape.strokeIds.length > 0 ? findStrokeById(shape.strokeIds[0], nc) : null)
+        || findNearestStroke(p.x, p.y, nc);
+
+      addCandidate({
+        x: p.x + n.x * 2.5,
+        y: p.y + n.y * 2.5,
+        dir: n,
+        strength: 0.85 + shapeStrength * 0.4,
+        sourceStroke: src,
+      });
+    }
+  }
+
+  // Fallback: endpoint sampling if all topology cues fail
+  if (candidates.length === 0) {
+    for (const stroke of nc.strokes) {
+      const pts = getStrokePoints(stroke);
+      if (pts.length < 2) continue;
+      const startDir = normalizeVec(pts[0].x - pts[1].x, pts[0].y - pts[1].y, { x: 1, y: 0 });
+      const endDir = normalizeVec(
+        pts[pts.length - 1].x - pts[pts.length - 2].x,
+        pts[pts.length - 1].y - pts[pts.length - 2].y,
+        { x: 1, y: 0 },
+      );
+      addCandidate({
+        x: pts[0].x + startDir.x * 2,
+        y: pts[0].y + startDir.y * 2,
+        dir: startDir,
+        strength: 0.5,
+        sourceStroke: stroke,
+      });
+      addCandidate({
+        x: pts[pts.length - 1].x + endDir.x * 2,
+        y: pts[pts.length - 1].y + endDir.y * 2,
+        dir: endDir,
+        strength: 0.5,
+        sourceStroke: stroke,
+      });
+      if (candidates.length >= maxSeeds * 3) break;
+    }
+  }
+
+  candidates.sort((a, b) => b.strength - a.strength);
+  const minSeedDist = clamp(radius * 0.12, 18, 64);
+  const minSeedDist2 = minSeedDist * minSeedDist;
+  const seeds = [];
+
+  for (const cand of candidates) {
+    let tooClose = false;
+    for (const s of seeds) {
+      const dx = cand.x - s.x;
+      const dy = cand.y - s.y;
+      if (dx * dx + dy * dy < minSeedDist2) {
+        tooClose = true;
+        break;
+      }
+    }
+    if (tooClose) continue;
+
+    const srcColor = cand.sourceStroke ? getStrokeColor(cand.sourceStroke) : (nc.summary?.palette?.[0] || '#ffffff');
+    const srcSize = cand.sourceStroke ? getStrokeBrushSize(cand.sourceStroke) : 5;
+    seeds.push({
+      x: cand.x,
+      y: cand.y,
+      dir: normalizeVec(cand.dir.x, cand.dir.y),
+      strength: cand.strength,
+      color: style.colorOverride || srcColor,
+      brushSize: style.brushOverride || clamp(srcSize * (style.brushScale || 0.8), 1, 20),
+    });
+    if (seeds.length >= maxSeeds) break;
+  }
+
+  return seeds;
+}
+
 // ---------------------------------------------------------------------------
 // Metadata for registry auto-discovery
 // ---------------------------------------------------------------------------
@@ -484,7 +767,19 @@ export const METADATA = [
     },
   },
   {
-    name: 'attractorBranch', description: 'Grow fractal branches outward from exterior edge points', category: 'collaborator',
+    name: 'attractorBranch', description: 'Grow SDF-guided fractal trees outward from detected surfaces', category: 'collaborator',
+    parameters: {
+      nearX: { type: 'number', default: 0, description: 'Center X' },
+      nearY: { type: 'number', default: 0, description: 'Center Y' },
+      radius: { type: 'number', default: 200, min: 50, max: 1000, description: 'Search radius' },
+      length: { type: 'number', default: 30, min: 5, max: 200, description: 'Branch length' },
+      generations: { type: 'number', default: 3, min: 1, max: 6, description: 'Branch depth' },
+      color: { type: 'string', default: '#ffffff', description: 'Branch color' },
+      brushSize: { type: 'number', default: 4, min: 1, max: 15, description: 'Brush size' },
+    },
+  },
+  {
+    name: 'surfaceTrees', description: 'Grow trees out of nearby surfaces using SDF normals', category: 'collaborator',
     parameters: {
       nearX: { type: 'number', default: 0, description: 'Center X' },
       nearY: { type: 'number', default: 0, description: 'Center Y' },
@@ -1626,58 +1921,149 @@ function senseAttractors(x, y, angle, dist, attractors, density) {
 // ---------------------------------------------------------------------------
 
 export function attractorBranch(nearX, nearY, radius, length, generations, color, brushSize) {
-  nearX = nearX || 0;
-  nearY = nearY || 0;
-  radius = radius || 200;
-  length = length || 30;
-  generations = clamp(generations || 3, 1, 6);
-  color = color || '#ffffff';
-  brushSize = brushSize || 4;
+  nearX = Number(nearX) || 0;
+  nearY = Number(nearY) || 0;
+  radius = clamp(Number(radius) || 200, 50, 1500);
+  length = clamp(Number(length) || 30, 5, 220);
+  generations = clamp(Math.round(Number(generations) || 3), 1, 7);
+  const colorOverride = color && color !== '#ffffff' ? color : null;
+  const brushOverride = brushSize !== undefined ? clamp(Number(brushSize) || 4, 1, 24) : null;
 
   const nc = _nearbyCache;
   if (!nc || !nc.strokes || nc.strokes.length === 0) return [];
 
-  const attractors = buildAttractors(nc.strokes, 10);
-  if (attractors.length === 0) return [];
+  const bounds = {
+    minX: nearX - radius,
+    minY: nearY - radius,
+    maxX: nearX + radius,
+    maxY: nearY + radius,
+  };
+  const shapes = collectSurfaceShapes(nc, bounds, 80);
+  const surface = buildSurfaceField(nc.strokes, bounds, shapes, clamp(Math.round(radius / 3), 100, 180));
+  const density = buildDensityMap(nc.strokes, bounds, 36);
+  const seeds = buildSurfaceSeeds(
+    nc,
+    nearX,
+    nearY,
+    radius,
+    shapes,
+    surface,
+    Math.min(30, Math.max(10, Math.round(radius / 45))),
+    {
+      colorOverride,
+      brushOverride,
+      brushScale: 0.82,
+    },
+  );
+  if (seeds.length === 0) return [];
 
   const strokes = [];
-  const branchAngle = 30 * Math.PI / 180;
-  const shrink = 0.7;
+  const MAX_TREE_STROKES = 240;
+  const BASE_BRANCH_ANGLE = 28 * Math.PI / 180;
+  const LENGTH_SHRINK = 0.72;
 
-  function growBranch(x, y, angle, len, gen, size) {
-    if (gen <= 0 || len < 3) return;
+  function growBranch(seed, x, y, dir, len, gen, size) {
+    if (gen <= 0 || len < 4 || size < 0.6 || strokes.length >= MAX_TREE_STROKES) return;
 
-    const nPts = Math.max(8, Math.round(len / 3));
-    const pts = [];
-    for (let i = 0; i <= nPts; i++) {
-      const t = i / nPts;
-      pts.push({
-        x: x + Math.cos(angle) * len * t + (noise2d(gen * 3.7, t * 5) - 0.5) * len * 0.1,
-        y: y + Math.sin(angle) * len * t + (noise2d(t * 5, gen * 3.7) - 0.5) * len * 0.1,
-      });
+    const step = Math.max(2.5, len / Math.max(6, Math.round(len / 3)));
+    const steps = Math.max(6, Math.round(len / step));
+    const pts = [{ x, y }];
+
+    let px = x;
+    let py = y;
+    let dx = dir.x;
+    let dy = dir.y;
+
+    for (let i = 0; i < steps; i++) {
+      const unsignedDist = surface.unsignedDistance(px, py);
+      const signedDist = surface.signedDistance(px, py);
+      if (!isFinite(unsignedDist)) break;
+
+      const normal = surface.normal(px, py);
+      const tangent = { x: -normal.y, y: normal.x };
+      const nearSurface = clamp(1 - unsignedDist / (step * 8), 0, 1);
+      const insidePush = signedDist < 0 ? clamp((-signedDist) / (step * 3), 0, 1) : 0;
+
+      dx += normal.x * (0.25 + nearSurface * 0.45 + insidePush);
+      dy += normal.y * (0.25 + nearSurface * 0.45 + insidePush);
+
+      const tangentNoise = (noise2d(px * 0.006 + gen * 0.7, py * 0.006 + i * 0.3) - 0.5) * 0.55;
+      dx += tangent.x * tangentNoise * nearSurface;
+      dy += tangent.y * tangentNoise * nearSurface;
+
+      const localDensity = density.get(px, py);
+      if (localDensity > 0.55) {
+        dx += (noise2d(py * 0.014, i * 0.31) - 0.5) * localDensity * 0.75;
+        dy += (noise2d(i * 0.31, px * 0.014) - 0.5) * localDensity * 0.75;
+      }
+
+      dx += (noise2d(gen * 1.3 + i * 0.17, px * 0.008) - 0.5) * 0.35;
+      dy += (noise2d(py * 0.008, gen * 1.3 + i * 0.17) - 0.5) * 0.35;
+
+      const dirLen = Math.sqrt(dx * dx + dy * dy);
+      if (dirLen < 1e-6) break;
+      dx /= dirLen;
+      dy /= dirLen;
+
+      px += dx * step;
+      py += dy * step;
+
+      const offX = px - nearX;
+      const offY = py - nearY;
+      if (offX * offX + offY * offY > (radius * 2.5) * (radius * 2.5)) break;
+
+      if (i > 1 && surface.unsignedDistance(px, py) < step * 0.3) break;
+      pts.push({ x: px, y: py });
     }
 
-    const opacity = clamp(0.9 - (generations - gen) * 0.15, 0.3, 0.9);
-    strokes.push(makeStroke(pts, color, size, opacity, 'taper'));
+    if (pts.length < 3) return;
+    const opacity = clamp(0.92 - (generations - gen) * 0.14, 0.28, 0.92);
+    strokes.push(makeStroke(pts, seed.color, size, opacity, 'taper'));
 
-    const endX = x + Math.cos(angle) * len;
-    const endY = y + Math.sin(angle) * len;
+    if (gen <= 1) return;
 
-    // Branch left and right
-    growBranch(endX, endY, angle - branchAngle, len * shrink, gen - 1, size * 0.8);
-    growBranch(endX, endY, angle + branchAngle, len * shrink, gen - 1, size * 0.8);
+    const tail = pts[pts.length - 1];
+    const prev = pts[pts.length - 2];
+    const outDir = normalizeVec(tail.x - prev.x, tail.y - prev.y, dir);
+    const baseAngle = Math.atan2(outDir.y, outDir.x);
+
+    const spreadJitter = (noise2d(tail.x * 0.007, tail.y * 0.007 + gen) - 0.5) * (8 * Math.PI / 180);
+    const spread = BASE_BRANCH_ANGLE + spreadJitter;
+    const childLen = len * LENGTH_SHRINK;
+    const childSize = Math.max(1, size * 0.76);
+
+    const childAngles = [baseAngle - spread, baseAngle + spread];
+    if (gen >= 4 && noise2d(gen * 2.1, tail.x * 0.013 + tail.y * 0.009) > 0.65) {
+      childAngles.push(baseAngle + spreadJitter * 0.4);
+    }
+
+    for (const a of childAngles) {
+      if (strokes.length >= MAX_TREE_STROKES) break;
+      growBranch(
+        seed,
+        tail.x,
+        tail.y,
+        { x: Math.cos(a), y: Math.sin(a) },
+        childLen,
+        gen - 1,
+        childSize,
+      );
+    }
   }
 
-  for (const attr of attractors) {
-    const dx = attr.x - nearX;
-    const dy = attr.y - nearY;
-    if (Math.sqrt(dx * dx + dy * dy) > radius) continue;
-
-    const angle = Math.atan2(attr.direction.y, attr.direction.x);
-    growBranch(attr.x, attr.y, angle, length, generations, brushSize);
+  for (const seed of seeds) {
+    if (strokes.length >= MAX_TREE_STROKES) break;
+    const trunkLen = length * (0.75 + seed.strength * 0.4);
+    const trunkSize = seed.brushSize * (0.9 + seed.strength * 0.2);
+    growBranch(seed, seed.x, seed.y, seed.dir, trunkLen, generations, trunkSize);
   }
 
-  return strokes;
+  return strokes.slice(0, MAX_TREE_STROKES);
+}
+
+// Alias for discoverability in agent prompts ("grow trees out of everything").
+export function surfaceTrees(nearX, nearY, radius, length, generations, color, brushSize) {
+  return attractorBranch(nearX, nearY, radius, length, generations, color, brushSize);
 }
 
 // ---------------------------------------------------------------------------
@@ -1956,24 +2342,9 @@ export function vineGrowth(nearX, nearY, radius, maxBranches, stepLen, branchPro
     maxX: nearX + radius, maxY: nearY + radius,
   };
 
-  const sdf = buildSDF(nc.strokes, bounds, 120);
+  const shapeHints = collectSurfaceShapes(nc, bounds, 80);
+  const surface = buildSurfaceField(nc.strokes, bounds, shapeHints, clamp(Math.round(radius / 2.8), 100, 190));
   const densityMap = buildDensityMap(nc.strokes, bounds, 32);
-
-  // Inline RGB → HSL conversion
-  function _rgbToHsl(r, g, b) {
-    r /= 255; g /= 255; b /= 255;
-    const max = Math.max(r, g, b), min = Math.min(r, g, b);
-    let h = 0, s = 0;
-    const l = (max + min) / 2;
-    if (max !== min) {
-      const d = max - min;
-      s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-      if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
-      else if (max === g) h = ((b - r) / d + 2) / 6;
-      else h = ((r - g) / d + 4) / 6;
-    }
-    return { h: h * 360, s: s * 100, l: l * 100 };
-  }
 
   // --- Constants ---
   const TIP_BUDGET = 250;
@@ -2020,7 +2391,7 @@ export function vineGrowth(nearX, nearY, radius, maxBranches, stepLen, branchPro
 
   // --- Seed tips ---
   if (mode === 'fill') {
-    const faces = extractPlanarFaces(nc.strokes, bounds);
+    const faces = shapeHints.length > 0 ? shapeHints : extractPlanarFaces(nc.strokes, bounds);
     for (const face of faces) {
       if (totalBranches >= maxBranches) break;
       const polygon = face.polygon;
@@ -2037,10 +2408,10 @@ export function vineGrowth(nearX, nearY, radius, maxBranches, stepLen, branchPro
       const srcColor = getStrokeColor(nearStroke);
       const srcSize = getStrokeBrushSize(nearStroke);
       const rgb = hexToRgb(srcColor);
-      const hsl = _rgbToHsl(rgb.r, rgb.g, rgb.b);
+      const hsl = rgbToHsl(rgb.r, rgb.g, rgb.b);
 
       // Seed tips along polygon boundary pointing inward
-      const tipCount = Math.min(Math.ceil(polygon.length / 3), maxBranches - totalBranches);
+      const tipCount = Math.min(Math.ceil(polygon.length / 3), maxBranches - totalBranches, 50);
       const tipStep = Math.max(1, Math.floor(polygon.length / tipCount));
       for (let i = 0; i < polygon.length && totalBranches < maxBranches; i += tipStep) {
         const p = polygon[i];
@@ -2059,37 +2430,34 @@ export function vineGrowth(nearX, nearY, radius, maxBranches, stepLen, branchPro
       }
     }
   } else {
-    // Grow mode — seed from EVERY endpoint (both start + end of every stroke)
-    for (const stroke of nc.strokes) {
+    // Grow mode — seed from SDF/topology-derived surface cues instead of every endpoint.
+    const growthSeeds = buildSurfaceSeeds(
+      nc,
+      nearX,
+      nearY,
+      radius,
+      shapeHints,
+      surface,
+      Math.min(maxBranches, Math.max(14, Math.round(maxBranches * 0.45))),
+      { brushScale: 0.8 },
+    );
+
+    for (const seed of growthSeeds) {
       if (totalBranches >= maxBranches) break;
-      const pts = (stroke.path || stroke.points || []).map(p => ({ x: p.x, y: p.y }));
-      if (pts.length < 2) continue;
-
-      const srcColor = getStrokeColor(stroke);
-      const srcSize = getStrokeBrushSize(stroke);
-      const rgb = hexToRgb(srcColor);
-      const hsl = _rgbToHsl(rgb.r, rgb.g, rgb.b);
-
-      // Seed both start and end
-      const endpoints = [
-        { pt: pts[0], angle: Math.atan2(pts[1].y - pts[0].y, pts[1].x - pts[0].x) + Math.PI }, // start — flip outward
-        { pt: pts[pts.length - 1], angle: Math.atan2(pts[pts.length - 1].y - pts[pts.length - 2].y, pts[pts.length - 1].x - pts[pts.length - 2].x) }, // end — already outward
-      ];
-
-      for (const ep of endpoints) {
-        if (totalBranches >= maxBranches) break;
-        tips.push({
-          x: ep.pt.x, y: ep.pt.y, angle: ep.angle,
-          sourceAngle: ep.angle,
-          h: hsl.h, s: hsl.s, l: hsl.l,
-          brushSize: srcSize * 0.8,
-          generation: 0, distFromOrigin: 0, stepCount: 0,
-          stepsRemaining: TIP_BUDGET,
-          points: [{ x: ep.pt.x, y: ep.pt.y }],
-          alive: true, cooldown: 0,
-        });
-        totalBranches++;
-      }
+      const rgb = hexToRgb(seed.color);
+      const hsl = rgbToHsl(rgb.r, rgb.g, rgb.b);
+      const angle = Math.atan2(seed.dir.y, seed.dir.x);
+      tips.push({
+        x: seed.x, y: seed.y, angle,
+        sourceAngle: angle,
+        h: hsl.h, s: hsl.s, l: hsl.l,
+        brushSize: seed.brushSize,
+        generation: 0, distFromOrigin: 0, stepCount: 0,
+        stepsRemaining: TIP_BUDGET,
+        points: [{ x: seed.x, y: seed.y }],
+        alive: true, cooldown: 0,
+      });
+      totalBranches++;
     }
   }
 
@@ -2121,19 +2489,20 @@ export function vineGrowth(nearX, nearY, radius, maxBranches, stepLen, branchPro
       let dx = srcDx * momentum + curDx * (1 - momentum);
       let dy = srcDy * momentum + curDy * (1 - momentum);
 
-      // 2. SDF edge interaction (unsigned distance — open polylines have unreliable sign)
-      const dist = Math.abs(sdf.query(tip.x, tip.y));
+      // 2. Surface interaction via signed distance field
+      const signedDist = surface.signedDistance(tip.x, tip.y);
+      const dist = Math.abs(signedDist);
+      const grad = surface.normal(tip.x, tip.y);
 
-      // Kill if overlapping a stroke (after momentum phase grace period)
-      if (tip.stepCount > 15 && dist < stepLen * 0.8) {
+      // Kill only when deeply colliding with existing geometry (not just grazing edges).
+      if (tip.stepCount > 15 && signedDist < stepLen * 0.35 && dist < stepLen * 0.65) {
         tip.points.pop();
         tip.alive = false;
         stats.deaths.sdf++;
         continue;
       }
 
-      if (dist < EDGE_THRESHOLD) {
-        const grad = sdf.gradient(tip.x, tip.y);
+      if (dist < EDGE_THRESHOLD && (Math.abs(grad.x) + Math.abs(grad.y) > 1e-8)) {
         // Tangent = perpendicular to gradient
         const tx = -grad.y;
         const ty = grad.x;
@@ -2151,6 +2520,13 @@ export function vineGrowth(nearX, nearY, radius, maxBranches, stepLen, branchPro
           dx += grad.x * repel;
           dy += grad.y * repel;
         }
+      }
+
+      // If the tip drifts inside a closed region, push it back outward.
+      if (signedDist < 0 && (Math.abs(grad.x) + Math.abs(grad.y) > 1e-8)) {
+        const insidePush = clamp((-signedDist) / (stepLen * 2), 0, 1);
+        dx += grad.x * insidePush * 1.1;
+        dy += grad.y * insidePush * 1.1;
       }
 
       // 3. Curl noise

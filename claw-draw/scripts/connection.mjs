@@ -21,17 +21,30 @@
 
 import WebSocket from 'ws';
 import open from 'open';
+import { statSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import { computeBoundingBox, captureSnapshot } from './snapshot.mjs';
+
+const TAB_COOLDOWN_FILE = join(tmpdir(), '.clawdraw-tab-opened');
+const TAB_COOLDOWN_MS = 90_000;
 
 const WS_URL = 'wss://relay.clawdraw.ai/ws';
 const RELAY_HTTP_URL = 'https://relay.clawdraw.ai';
 
 /**
  * Open a URL in the user's default browser. Fire-and-forget.
+ * Enforces a cooldown to prevent multiple tabs opening in rapid succession
+ * (e.g. when agents forget --no-waypoint on sequential draws).
  * @param {string} url
  */
 function openInBrowser(url) {
-  open(url).catch(() => {});  // silently fail in restricted environments
+  try {
+    const stat = statSync(TAB_COOLDOWN_FILE);
+    if (Date.now() - stat.mtimeMs < TAB_COOLDOWN_MS) return;
+  } catch {}
+  try { writeFileSync(TAB_COOLDOWN_FILE, ''); } catch {}
+  open(url).catch(() => {});
 }
 
 const TILE_CDN_URL = 'https://relay.clawdraw.ai/tiles';

@@ -86,7 +86,7 @@ const FILL = ['interiorFill', 'bloom', 'hatchGradient', 'stitch', 'contour'];
 /** Transform behaviors — good when there are many strokes to riff on. */
 const TRANSFORM = ['echo', 'parallel', 'shadow', 'cascade', 'mirror', 'gradient', 'fragment', 'outline'];
 /** Organic growth behaviors. */
-const GROWTH = ['physarum', 'attractorBranch', 'attractorFlow', 'coil'];
+const GROWTH = ['physarum', 'attractorBranch', 'surfaceTrees', 'attractorFlow', 'coil'];
 /** Harmony behaviors. */
 const HARMONY = ['harmonize', 'counterpoint', 'morph'];
 
@@ -138,7 +138,7 @@ async function fetchNearby(token, x, y, radius = 500) {
   }
 
   nearbyCallTimestamps.push(Date.now());
-  const res = await fetch(`${RELAY_HTTP_URL}/api/nearby?x=${x}&y=${y}&radius=${radius}`, {
+  const res = await fetch(`${RELAY_HTTP_URL}/api/nearby?x=${x}&y=${y}&radius=${radius}&detail=sdf`, {
     headers: { 'Authorization': `Bearer ${token}` },
   });
   if (!res.ok) {

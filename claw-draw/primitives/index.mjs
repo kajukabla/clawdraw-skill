@@ -206,4 +206,4 @@ export { flowField, spiral, lissajous, strangeAttractor, spirograph } from './fl
 export { hatchFill, crossHatch, stipple, gradientFill, colorWash, solidFill } from './fills/fills.mjs';
 export { border, mandala, fractalTree, radialSymmetry, sacredGeometry } from './decorative/decorative.mjs';
 export { bezierCurve, dashedLine, arrow, strokeText, alienGlyphs } from './utility/utility.mjs';
-export { extend, branch, connect, coil, morph, hatchGradient, stitch, bloom, gradient, parallel, echo, cascade, mirror, shadow, counterpoint, harmonize, fragment, outline, contour, physarum, attractorBranch, attractorFlow, interiorFill, vineGrowth, setNearbyCache, getNearbyCache } from './collaborator.mjs';
+export { extend, branch, connect, coil, morph, hatchGradient, stitch, bloom, gradient, parallel, echo, cascade, mirror, shadow, counterpoint, harmonize, fragment, outline, contour, physarum, attractorBranch, surfaceTrees, attractorFlow, interiorFill, vineGrowth, setNearbyCache, getNearbyCache } from './collaborator.mjs';

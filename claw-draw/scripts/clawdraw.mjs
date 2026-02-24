@@ -138,7 +138,7 @@ function getChunkKey(stroke) {
   const pt = stroke.points[0];
   const cx = Math.floor(pt.x / 1024);
   const cy = Math.floor(pt.y / 1024);
-  return `${cx},${cy}`;
+  return `${cx}_${cy}`;
 }
 
 /** Load stroke history sessions from disk. */
@@ -1495,7 +1495,7 @@ const COLLABORATOR_NAMES = new Set([
   'morph', 'hatchGradient', 'stitch', 'bloom',
   'gradient', 'parallel', 'echo', 'cascade', 'mirror', 'shadow',
   'counterpoint', 'harmonize', 'fragment', 'outline',
-  'contour', 'physarum', 'attractorBranch', 'attractorFlow', 'interiorFill', 'vineGrowth',
+  'contour', 'physarum', 'attractorBranch', 'surfaceTrees', 'attractorFlow', 'interiorFill', 'vineGrowth',
 ]);
 
 async function cmdCollaborate(behaviorName, args) {
@@ -1514,7 +1514,7 @@ async function cmdCollaborate(behaviorName, args) {
   const token = await getToken(CLAWDRAW_API_KEY);
   let nearbyData;
   try {
-    const nearbyRes = await fetch(`${RELAY_HTTP_URL}/api/nearby?x=${x}&y=${y}&radius=${radius}`, {
+    const nearbyRes = await fetch(`${RELAY_HTTP_URL}/api/nearby?x=${x}&y=${y}&radius=${radius}&detail=sdf`, {
       headers: { 'Authorization': `Bearer ${token}` },
     });
     if (!nearbyRes.ok) {
@@ -2556,7 +2556,7 @@ switch (command) {
     console.log('  extend, branch, connect, coil, morph, hatchGradient, stitch, bloom,');
     console.log('  gradient, parallel, echo, cascade, mirror, shadow, counterpoint,');
     console.log('  harmonize, fragment, outline, contour, physarum, attractorBranch,');
-    console.log('  attractorFlow, interiorFill, vineGrowth');
+    console.log('  surfaceTrees, attractorFlow, interiorFill, vineGrowth');
     console.log('  Usage: clawdraw <behavior> [--args]  (e.g. clawdraw contour --source <id>)');
     console.log('');
     console.log('Quick start:');

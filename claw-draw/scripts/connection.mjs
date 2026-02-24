@@ -224,6 +224,7 @@ const BATCH_ACK_TIMEOUT_MS = 5000;
  * @property {string[]} errors   - Error codes/messages for rejected batches
  * @property {number} strokesSent  - Total individual strokes transmitted
  * @property {number} strokesAcked - Total individual strokes acknowledged
+ * @property {string[]} ackedStrokeIds - IDs confirmed by stroke/strokes ack responses
  */
 
 /**
@@ -328,7 +329,7 @@ export async function sendStrokes(ws, strokes, optsOrDelay = {}) {
     }
   }
 
-  const result = { sent: 0, acked: 0, rejected: 0, errors: [], strokesSent: 0, strokesAcked: 0 };
+  const result = { sent: 0, acked: 0, rejected: 0, errors: [], strokesSent: 0, strokesAcked: 0, ackedStrokeIds: [] };
 
   if (strokes.length === 0) return result;
 
@@ -338,17 +339,21 @@ export async function sendStrokes(ws, strokes, optsOrDelay = {}) {
   const batches = [];
   if (legacy) {
     for (const stroke of strokes) {
-      batches.push({ msg: { type: 'stroke.add', stroke }, count: 1 });
+      const id = stroke && stroke.id !== undefined && stroke.id !== null ? String(stroke.id) : null;
+      batches.push({ msg: { type: 'stroke.add', stroke }, count: 1, strokeIds: id ? [id] : [] });
     }
   } else {
     for (let i = 0; i < strokes.length; i += batchSize) {
       const batch = strokes.slice(i, i + batchSize);
-      batches.push({ msg: { type: 'strokes.add', strokes: batch }, count: batch.length });
+      const strokeIds = batch
+        .map(s => (s && s.id !== undefined && s.id !== null ? String(s.id) : null))
+        .filter(Boolean);
+      batches.push({ msg: { type: 'strokes.add', strokes: batch }, count: batch.length, strokeIds });
     }
   }
 
   for (let bi = 0; bi < batches.length; bi++) {
-    const { msg, count } = batches[bi];
+    const { msg, count, strokeIds = [] } = batches[bi];
     let accepted = false;
     let retries = 0;
 
@@ -373,6 +378,7 @@ export async function sendStrokes(ws, strokes, optsOrDelay = {}) {
         accepted = true;
         result.acked++;
         result.strokesAcked += count;
+        if (strokeIds.length > 0) result.ackedStrokeIds.push(...strokeIds);
       } else if (resp.type === 'error') {
         if (resp.code === 'RATE_LIMITED') {
           retries++;
@@ -644,7 +650,7 @@ async function autoFindSpace(token) {
  * @param {number} [opts.zoom] - Zoom level for links (auto-computed from stroke bounding box if omitted)
  * @param {string} [opts.name] - Waypoint name
  * @param {string} [opts.description] - Waypoint description
- * @param {boolean} [opts.skipWaypoint=false] - Skip waypoint creation, chat post, and browser open
+ * @param {boolean} [opts.skipWaypoint=false] - Skip persistent waypoint, chat post, and browser open (a temporary waypoint is still created for chunk subscription, then deleted)
  * @param {boolean} [opts.absolute=false] - Strokes are at final absolute coordinates; skip auto-placement and re-centering
  * @param {boolean} [opts.swarm=false] - Swarm mode: use ideal animation pacing with no time cap
  * @returns {Promise<SendResult>}
@@ -707,34 +713,46 @@ export async function drawAndTrack(ws, strokes, { cx, cy, zoom, name, descriptio
   ws._currentViewport = drawViewport;
   ws.send(JSON.stringify(drawViewport));
 
-  // 3. Create waypoint BEFORE drawing
+  // 3. Create waypoint BEFORE drawing — always needed to activate chunk
+  //    subscriptions at the drawing coordinates. viewport.update alone is
+  //    fire-and-forget and doesn't guarantee the server has subscribed
+  //    the client to those chunks.
   let waypointUrl = null;
-  if (!skipWaypoint) {
-    try {
-      const wp = await addWaypoint(ws, {
-        name: drawingName,
-        x: cx, y: cy, zoom,
-        description: description || `${strokes.length} strokes`,
-      });
+  let tempWaypointId = null;
+  try {
+    const wp = await addWaypoint(ws, {
+      name: skipWaypoint ? `_tmp_${Date.now()}` : drawingName,
+      x: cx, y: cy, zoom,
+      description: description || `${strokes.length} strokes`,
+    });
+    if (skipWaypoint) {
+      tempWaypointId = wp.id;
+    } else {
       waypointUrl = getWaypointUrl(wp);
       console.log(`Waypoint: ${waypointUrl}`);
-    } catch (wpErr) {
-      console.warn(`[waypoint] Failed: ${wpErr.message}`);
     }
+  } catch (wpErr) {
+    console.warn(`[waypoint] Failed: ${wpErr.message}`);
+  }
 
+  if (!skipWaypoint) {
     // 4. Open waypoint URL in browser (with nomodal for clean viewing)
     if (waypointUrl) {
       openInBrowser(`${waypointUrl}&nomodal=1`);
     }
-  }
-
-  // Wait for browser page to load before sending strokes
-  if (!skipWaypoint) {
+    // Wait for browser page to load before sending strokes
     await new Promise(resolve => setTimeout(resolve, 3000));
   }
 
   // 6. Send strokes
   const result = await sendStrokes(ws, strokes, { swarm });
+
+  // Clean up temporary waypoint used only for chunk subscription
+  if (tempWaypointId) {
+    try {
+      await deleteWaypoint(ws, tempWaypointId);
+    } catch { /* best-effort cleanup */ }
+  }
 
   // 7. Capture snapshot
   try {

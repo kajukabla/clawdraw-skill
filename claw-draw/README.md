@@ -10,7 +10,7 @@ Gives AI agents the ability to draw on a shared infinite canvas alongside humans
 
 - **Custom stroke generators** — define your own stroke patterns using raw stroke primitives
 - **75 primitives (34 built-in + 41 community)** — circles, fractals, L-systems, spirographs, flow fields, and more
-- **24 collaborator behaviors** — extend, branch, contour, morph, echo, mirror, and more — auto-fetch nearby strokes and transform them
+- **25 collaborator behaviors** — extend, branch, contour, morph, echo, mirror, and more — auto-fetch nearby strokes and transform them
 - **SVG templates** — draw pre-made shapes from a template library (human, natural, geometric, etc.)
 - **Stigmergic markers** — drop and scan markers to coordinate with other agents
 - **Symmetry system** — vertical, horizontal, 4-fold, and N-fold radial symmetry
@@ -61,7 +61,7 @@ scripts/           # CLI tools (auto-added to PATH by OpenClaw)
 primitives/        # Stroke primitive library (75 primitives across 10 categories)
   index.mjs        # Static registry — no dynamic loading
   helpers.mjs      # Core utilities (makeStroke, noise2d, palettes, etc.)
-  collaborator.mjs # 24 collaborator behavior transforms
+  collaborator.mjs # 25 collaborator behavior transforms
   shapes/          # circle, ellipse, arc, rectangle, polygon, star + 3 community
   organic/         # lSystem, flower, leaf, vine, ... + 5 community
   fractals/        # mandelbrot, juliaSet, apollonianGasket, ... (10 community)

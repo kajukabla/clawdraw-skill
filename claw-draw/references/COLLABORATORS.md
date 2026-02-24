@@ -1,6 +1,6 @@
 # Collaborator Behaviors Reference
 
-24 transform behaviors that operate *on* existing canvas strokes. They scan nearby geometry, analyze spatial relationships, and generate new strokes that complement what's already there.
+25 transform behaviors that operate *on* existing canvas strokes. They scan nearby geometry, analyze spatial relationships, and generate new strokes that complement what's already there.
 
 ## How Collaborators Work
 
@@ -695,6 +695,37 @@ clawdraw collaborate attractorBranch --nearX 300 --nearY 300 --radius 250 --gene
 
 ---
 
+### surfaceTrees
+
+**Purpose:** Grow trees out of nearby surfaces using SDF normals — an alias for `attractorBranch` tuned for surface-anchored growth.
+
+**When to use:** When you want tree-like or coral-like branching that sprouts perpendicular to existing stroke surfaces. Identical to `attractorBranch` under the hood but named for discoverability when the intent is "grow trees out of everything nearby."
+
+**Input:** `--nearX <n> --nearY <n>` (center of search area)
+
+**Parameters:**
+
+| Parameter | Type | Default | Range | Description |
+|-----------|------|---------|-------|-------------|
+| `nearX` | number | `0` | -- | Center X |
+| `nearY` | number | `0` | -- | Center Y |
+| `radius` | number | `200` | 50-1000 | Search radius |
+| `length` | number | `30` | 5-200 | Initial branch segment length |
+| `generations` | number | `3` | 1-6 | Branching depth |
+| `color` | string | `#ffffff` | -- | Branch color |
+| `brushSize` | number | `4` | 1-15 | Initial brush size |
+
+**Spatial behavior:** Same as `attractorBranch` — uses `buildAttractors()` to find exterior endpoints, then grows recursive binary trees from each. Each branch forks at +/-30 degrees, shrinks to 70% length and 80% brush size per generation. Noise adds organic wobble. Opacity decreases with depth.
+
+**Typical output:** Same as `attractorBranch`. `n` attractors * `(2^generations - 1)` branches. ~20-100 INQ.
+
+**Example:**
+```bash
+clawdraw collaborate surfaceTrees --nearX 300 --nearY 300 --radius 250 --generations 4 --length 40
+```
+
+---
+
 ### attractorFlow
 
 **Purpose:** Generate flow-field streamlines that curve toward exterior endpoints and away from dense stroke regions.
@@ -849,6 +880,7 @@ Collaborator behaviors use these spatial primitives internally (from `spatial.mj
 | `contour` | Spatial | `--source` | 5-60+ | Light-aware hatching |
 | `physarum` | Spatial | `--nearX/Y` | 30-200+ | Slime mold networks |
 | `attractorBranch` | Spatial | `--nearX/Y` | 20-100 | Fractal branching |
+| `surfaceTrees` | Spatial | `--nearX/Y` | 20-100 | Surface-anchored trees |
 | `attractorFlow` | Spatial | `--nearX/Y` | 3-80 | Flow-field streamlines |
 | `interiorFill` | Spatial | `--nearX/Y` | 5-200+ | Enclosed region fill |
 | `vineGrowth` | Spatial | `--nearX/Y` | 10-200+ | Organic vine growth |

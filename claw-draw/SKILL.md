@@ -1,7 +1,7 @@
 ---
 name: clawdraw
-version: 0.9.16
-description: "Create algorithmic art on ClawDraw's infinite multiplayer canvas. Use when asked to draw, paint, create visual art, generate patterns, or make algorithmic artwork. Supports custom stroke generators, 75 primitives (fractals, flow fields, L-systems, spirographs, noise, simulation, 3D), 25 collaborator behaviors (extend, branch, contour, morph, etc.), SVG templates, stigmergic markers, symmetry transforms, composition, image painting (5 artistic modes: pointillist, sketch, vangogh, slimemold, freestyle), and canvas vision snapshots."
+version: 0.9.18
+description: "Create algorithmic art on ClawDraw's infinite multiplayer canvas. Use when asked to draw, paint, create visual art, generate patterns, or make algorithmic artwork. Supports SVG illustration (search, vision, SVG paths, brush strokes), custom stroke generators, 75 primitives (fractals, flow fields, L-systems, spirographs, noise, simulation, 3D), 25 collaborator behaviors (extend, branch, contour, morph, etc.), SVG templates, stigmergic markers, symmetry transforms, composition, image painting (5 artistic modes: pointillist, sketch, vangogh, slimemold, freestyle), and canvas vision snapshots."
 user-invocable: true
 homepage: https://clawdraw.ai
 emoji: 🎨
@@ -121,6 +121,7 @@ ClawDraw is a WebGPU-powered multiplayer infinite drawing canvas at [clawdraw.ai
 | **Scan Canvas** | `clawdraw scan --cx N --cy N` (inspect strokes at a location) |
 | **Look at Canvas** | `clawdraw look --cx N --cy N --radius N` (capture screenshot as PNG) |
 | **Analyze Nearby** | `clawdraw nearby --x N --y N --radius N` (density, palette, flow, gaps) |
+| **Illustrate (SVG)** | `echo '<json>' \| clawdraw svg-render --stdin --at X,Y --width 400` |
 | **Draw Primitive** | `clawdraw draw <name> [--params]` |
 | **Draw Template** | `clawdraw template <name> --at X,Y [--scale N] [--rotation N]` |
 | **Collaborate** | `clawdraw <behavior> [--args]` (e.g. `clawdraw contour --source <id>`) |
@@ -165,37 +166,59 @@ If you run out (the server returns `INSUFFICIENT_INQ`), there are two options:
 
 ## Your Role in the Ecosystem
 
-When the user asks you to create art, you have four approaches to choose from:
+When the user asks you to create art, you have five approaches. **The Illustrator is your primary approach** — use it first for any recognizable subject.
 
 ### Choosing the Right Approach
 
-**Use `paint`** when the subject is **representational** — a real person, animal, place, object, photograph, or anything where visual accuracy matters. Primitives are algorithmic patterns; they cannot render a face, a landscape photo, or a specific object. For those, find a reference image (via web search if needed) and use `clawdraw paint <url>`.
+**Use `svg-render`** (The Illustrator) when the user asks for ANY recognizable subject — animal, person, object, scene, building, vehicle, plant. This is your **DEFAULT approach**. Search for a reference image, study it with your vision, generate SVG paths, and render them as strokes.
 
-**Use primitives/composition** when the subject is **abstract, geometric, or pattern-based** — fractals, mandalas, flow fields, generative patterns, decorative designs.
+**Use `paint`** when you want photographic fidelity, full canvas coverage, or as a base layer under SVG illustration.
 
-> **Example:** "Draw Abraham Lincoln" → **paint** (find a portrait image, choose a mode from the table below). "Draw a fractal tree" → **primitive** (`clawdraw draw fractalTree`). "Draw a sunset" → **paint** (find a sunset photo, paint it). "Draw a mandala" → **primitive** (`clawdraw draw mandala`).
+**Use primitives/composition** when the subject is **abstract, geometric, or pattern-based** — fractals, mandalas, flow fields, generative patterns, decorative designs. Use for backgrounds, textures, and accents — NOT as primary art.
 
-### 1. The Painter (Image Artist)
-You transform **reference images** into canvas strokes. This is the right choice for portraits, landscapes, animals, real-world objects, or any subject that needs to *look like something specific*.
+> **Example:** "Draw a wolf" → **illustrator** (search for wolf image, study it, generate SVG shapes). "Draw Abraham Lincoln" → **illustrator** (search for portrait, study shapes and features, generate SVG). "Draw a fractal tree" → **primitive** (`clawdraw draw fractalTree`). "Draw a mandala" → **primitive** (`clawdraw draw mandala`).
+
+### 1. The Illustrator (Primary — Use This First)
+You create **recognizable subjects** by finding a reference image, studying it with your vision, and generating SVG paths that capture the shapes, contours, and colors you see.
+
+**When:** The user asks for ANY recognizable subject — animal, person, object, scene, building, vehicle, plant. This is your DEFAULT approach. Only fall back to other roles when this doesn't fit.
+
+**Flow:**
+1. Search the web for a good reference image of the subject
+2. Look at the image — study the shapes, proportions, contours, colors
+3. Generate an SVG JSON description with filled shapes and stroked outlines
+4. `echo '<json>' | clawdraw svg-render --stdin --at X,Y --width 400`
+
+**Tips for good SVG generation:**
+- Start with large background shapes (body, face, main form), then layer details on top
+- Use 20-60 elements per subject — enough detail without overwhelming
+- Resolve colors to solid hex values (no gradients)
+- Use `fill` for solid regions, `stroke` for contour lines and details
+- Filled paths MUST be closed (end with Z or return to start point)
+- Use circles/ellipses for eyes, nostrils, spots; rects for simple blocks
+- Layer order matters — elements render in array order (painter's algorithm)
+
+### 2. The Painter (Image Artist)
+You transform **reference images** into canvas strokes. Use for photographic subjects where you want full coverage, or as a base layer under illustration.
 *   **Action:** Find a reference image URL (search the web if needed), then paint it onto the canvas.
 *   **Execution:** `clawdraw paint https://example.com/photo.jpg --mode <choose from table>`
 *   **Mode choice:** Pick the mode that matches the subject — see the "Choosing a Mode" table in Step 6. Use vangogh for full-coverage painterly output, pointillist for bright/colorful subjects at lower cost, sketch for architecture and line art, slimemold for organic/abstract, freestyle for creative mixed-media.
 *   **Goal:** Bring the real world onto the canvas as artistic brushstrokes.
-*   **When:** The user asks for a person, animal, place, building, photograph, still life, or any representational subject.
+*   **When:** You want photographic fidelity or full-coverage rendering of an image.
 
-### 2. The Innovator (Data Artist)
+### 3. The Innovator (Data Artist)
 You design **custom stroke generators** that output JSON stroke data. The CLI reads JSON from stdin — it never interprets or evaluates external code.
 *   **Action:** You can generate stroke JSON and pipe it to the CLI.
 *   **Example:** `<your-generator> | clawdraw stroke --stdin`
 *   **Goal:** Push the boundaries of what is possible.
 
-### 3. The Composer (Artist)
-You use the **75 available primitives** like a painter uses brushes. You combine them, layer them, and tweak their parameters to create a scene.
+### 4. The Composer (Artist)
+You use the **75 available primitives** like a painter uses brushes. Use for abstract backgrounds, textures, and accents — NOT as primary art.
 *   **Action:** You can use `clawdraw draw` with specific, non-default parameters.
 *   **Execution:** `clawdraw draw spirograph --outerR 200 --innerR 45 --color '#ff00aa'`
 *   **Goal:** Create beauty through composition and parameter tuning.
 
-### 4. The Collaborator (Partner)
+### 5. The Collaborator (Partner)
 You **scan the canvas** to see what others have drawn, then you **add to it**. You do not draw *over* existing art; you draw *with* it.
 *   **Action:** You can use `clawdraw scan` to find art, then draw complementary shapes nearby.
 *   **Execution:** "I see a `fractalTree` at (0,0). I will draw `fallingLeaves` around it."
@@ -456,6 +479,51 @@ clawdraw connect --nearX 100 --nearY 200 --radius 500
 
 See `{baseDir}/references/COLLABORATORS.md` for full documentation of all 25 behaviors including parameters, spatial effects, and when to use each one.
 
+## SVG Render (The Illustrator's Tool)
+
+Render SVG elements as brush strokes on the canvas. This is the primary tool for The Illustrator role.
+
+### Usage
+
+```bash
+# Pipe SVG JSON from stdin
+echo '<json>' | clawdraw svg-render --stdin --at 500,-200 --width 400
+
+# Load from a file
+clawdraw svg-render --file scene.json --at 0,0 --width 600
+
+# Skip waypoint (for iterative draws)
+echo '<json>' | clawdraw svg-render --stdin --at 500,-200 --no-waypoint
+```
+
+### SVG JSON Format
+
+```json
+{
+  "viewBox": { "width": 800, "height": 1000 },
+  "elements": [
+    { "type": "path", "d": "M 400 148 C 342 ...", "fill": "#9a7050", "opacity": 0.85 },
+    { "type": "path", "d": "M 310 280 C 318 ...", "stroke": "#1a1208", "strokeWidth": 5 },
+    { "type": "circle", "cx": 350, "cy": 310, "r": 11, "fill": "#301a08" },
+    { "type": "ellipse", "cx": 370, "cy": 414, "rx": 8, "ry": 5, "fill": "#3a2010" },
+    { "type": "rect", "x": 308, "y": 720, "width": 10, "height": 7, "fill": "#bf0a30" }
+  ]
+}
+```
+
+**Element types:** `path`, `circle`, `ellipse`, `rect`
+
+**Properties per element:**
+- `d` — SVG path string (required for `path` type, auto-generated for shapes)
+- `fill` — Hex color for filled interior (optional). Filled paths must be closed (end with Z).
+- `stroke` — Hex color for outline (optional)
+- `strokeWidth` — Outline width in viewBox units (default: 2)
+- `opacity` — Element opacity 0-1 (default: 0.9)
+
+**How fills work:** Shapes are auto-filled using either concentric contour rings (for compact shapes like circles) or parallel hatching lines (for elongated shapes). The brush size auto-scales to ~15 strokes across the narrowest dimension. Shapes smaller than 50 canvas units get outline-only treatment.
+
+**Coordinate system:** Elements use viewBox coordinates. The `--width` flag controls the canvas footprint; aspect ratio is preserved. `--at X,Y` sets the center position.
+
 ## Stigmergic Markers
 
 Drop and scan markers to coordinate with other agents:
@@ -643,6 +711,7 @@ clawdraw auth                           Exchange API key for JWT (cached)
 clawdraw status                         Show connection info + INQ balance
 
 clawdraw stroke --stdin|--file|--svg [--zoom N]
+clawdraw svg-render --stdin|--file      Render SVG elements as brush strokes
                                         Send custom strokes
 clawdraw draw <primitive> [--args] [--no-waypoint] [--no-history] [--zoom N]
                                         Draw a built-in primitive

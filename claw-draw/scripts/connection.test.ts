@@ -198,7 +198,7 @@ describe('sendStrokes (rate-aware)', () => {
     const result = await sendStrokes(ws, []);
     expect(result).toEqual({
       sent: 0, acked: 0, rejected: 0, errors: [],
-      strokesSent: 0, strokesAcked: 0, ackedStrokeIds: [],
+      strokesSent: 0, strokesAcked: 0,
     });
   });
 
@@ -211,7 +211,7 @@ describe('sendStrokes (rate-aware)', () => {
 
     expect(result).toEqual({
       sent: 1, acked: 1, rejected: 0, errors: [],
-      strokesSent: 1, strokesAcked: 1, ackedStrokeIds: ['s1'],
+      strokesSent: 1, strokesAcked: 1,
     });
   });
 

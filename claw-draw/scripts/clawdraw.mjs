@@ -33,8 +33,6 @@
  *   clawdraw rename --name <name>        Set display name (session only)
  *   clawdraw erase --ids <id1,id2,...>    Erase strokes by ID (own strokes only)
  *   clawdraw waypoint-delete --id <id>  Delete a waypoint (own waypoints only)
- *   clawdraw svg-render --stdin [--at X,Y] [--width 400]
- *                                        Render SVG elements as brush strokes
  *   clawdraw marker drop --x N --y N --type TYPE [--message "..."] [--decay N]
  *                                        Drop a stigmergic marker
  *   clawdraw marker scan --x N --y N --radius N [--type TYPE] [--json]
@@ -57,9 +55,8 @@ import { connect, drawAndTrack, addWaypoint, getWaypointUrl, deleteStroke, delet
 import { parseSymmetryMode, applySymmetry } from './symmetry.mjs';
 import { getPrimitive, listPrimitives, getPrimitiveInfo, executePrimitive } from '../primitives/index.mjs';
 import * as collaborators from '../primitives/collaborator.mjs';
-import { makeStroke, splitIntoStrokes, clamp } from '../primitives/helpers.mjs';
+import { makeStroke } from '../primitives/helpers.mjs';
 import { parseSvgPath, parseSvgPathMulti } from '../lib/svg-parse.mjs';
-import { polygonBBox, chooseFillStrategy, contourFill, hatchFill, circleToPath, ellipseToPath, rectToPath } from '../lib/svg-fill.mjs';
 import { traceImage, analyzeRegions } from '../lib/image-trace.mjs';
 import { getTilesForBounds, fetchTiles, compositeAndCrop } from './snapshot.mjs';
 import { lookup } from 'node:dns/promises';
@@ -2499,174 +2496,6 @@ async function cmdPlanSwarm(args) {
 }
 
 // ---------------------------------------------------------------------------
-// svg-render command
-// ---------------------------------------------------------------------------
-
-async function cmdSvgRender(args) {
-  let input;
-  if (args.stdin) {
-    input = await readStdin();
-  } else if (args.file) {
-    input = fs.readFileSync(args.file, 'utf-8');
-  } else {
-    console.error('Usage: clawdraw svg-render --stdin [--at X,Y] [--width 400]');
-    console.error('       clawdraw svg-render --file scene.json [--at X,Y] [--width 400]');
-    process.exit(1);
-  }
-
-  let data;
-  try {
-    data = JSON.parse(input);
-  } catch (err) {
-    console.error('Invalid JSON:', err.message);
-    process.exit(1);
-  }
-
-  const viewBox = data.viewBox || { width: 800, height: 600 };
-  const elements = data.elements || [];
-  if (elements.length === 0) {
-    console.error('No elements found in SVG data.');
-    process.exit(1);
-  }
-
-  // Coordinate mapping
-  const canvasWidth = args.width !== undefined ? Number(args.width) : 400;
-  const scale = canvasWidth / viewBox.width;
-
-  // Parse --at X,Y for placement
-  let atX = 0, atY = 0;
-  if (args.at) {
-    const parts = String(args.at).split(',').map(Number);
-    if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
-      atX = parts[0];
-      atY = parts[1];
-    }
-  }
-
-  const translate = {
-    x: atX - (viewBox.width / 2) * scale,
-    y: atY - (viewBox.height / 2) * scale,
-  };
-
-  const allStrokes = [];
-
-  for (const el of elements) {
-    const fillColor = el.fill || null;
-    const strokeColor = el.stroke || null;
-    const strokeWidth = el.strokeWidth || 2;
-    const opacity = el.opacity !== undefined ? Number(el.opacity) : 0.9;
-
-    // Convert shape elements to SVG `d` strings
-    let d = el.d || null;
-    if (el.type === 'circle' && !d) {
-      d = circleToPath(Number(el.cx) || 0, Number(el.cy) || 0, Number(el.r) || 10);
-    } else if (el.type === 'ellipse' && !d) {
-      d = ellipseToPath(Number(el.cx) || 0, Number(el.cy) || 0, Number(el.rx) || 10, Number(el.ry) || 5);
-    } else if (el.type === 'rect' && !d) {
-      d = rectToPath(Number(el.x) || 0, Number(el.y) || 0, Number(el.width) || 10, Number(el.height) || 10, Number(el.rx) || 0);
-    }
-
-    if (!d) continue;
-
-    const svgOpts = { scale, translate };
-
-    // --- Fill ---
-    if (fillColor) {
-      const points = parseSvgPath(d, svgOpts);
-      if (points.length >= 3) {
-        const polygon = points.map(p => ({ x: p.x, y: p.y }));
-        const bbox = polygonBBox(polygon);
-        const minDim = Math.min(bbox.width, bbox.height);
-
-        // Auto-size brush for fill
-        const brushSize = clamp(minDim / 15, 3, 30);
-
-        if (minDim < 50) {
-          // Too small for fill — outline only
-          allStrokes.push(...splitIntoStrokes(
-            [...points, points[0]],
-            fillColor, brushSize, opacity, 'flat'
-          ));
-        } else {
-          const strategy = chooseFillStrategy(polygon);
-          if (strategy === 'contour') {
-            const rings = contourFill(polygon, { brushSize });
-            for (const ring of rings) {
-              allStrokes.push(...splitIntoStrokes(ring, fillColor, brushSize, opacity, 'flat'));
-            }
-          } else {
-            const lines = hatchFill(polygon, { brushSize });
-            for (const line of lines) {
-              if (line.length >= 2) {
-                allStrokes.push(makeStroke(line, fillColor, brushSize, opacity, 'flat'));
-              }
-            }
-          }
-        }
-      }
-    }
-
-    // --- Stroke (outline) ---
-    if (strokeColor) {
-      const outlineSize = clamp(strokeWidth * scale, 2, 20);
-      const subpaths = parseSvgPathMulti(d, svgOpts);
-      for (const sub of subpaths) {
-        if (sub.length >= 2) {
-          allStrokes.push(...splitIntoStrokes(sub, strokeColor, outlineSize, opacity, 'default'));
-        }
-      }
-    }
-
-    // If neither fill nor stroke specified, default to outline in white
-    if (!fillColor && !strokeColor) {
-      const subpaths = parseSvgPathMulti(d, svgOpts);
-      for (const sub of subpaths) {
-        if (sub.length >= 2) {
-          allStrokes.push(...splitIntoStrokes(sub, '#ffffff', 3, opacity, 'default'));
-        }
-      }
-    }
-  }
-
-  if (allStrokes.length === 0) {
-    console.error('SVG render produced no strokes.');
-    process.exit(1);
-  }
-
-  console.log(`SVG render: ${elements.length} elements → ${allStrokes.length} strokes`);
-
-  try {
-    const token = await getToken(CLAWDRAW_API_KEY);
-    const ws = await connect(token, { username: CLAWDRAW_DISPLAY_NAME });
-    const cx = args.cx !== undefined ? Number(args.cx) : undefined;
-    const cy = args.cy !== undefined ? Number(args.cy) : undefined;
-    const zoom = args.zoom !== undefined ? Number(args.zoom) : undefined;
-    const result = await drawAndTrack(ws, allStrokes, {
-      cx, cy, zoom,
-      name: 'SVG illustration',
-      skipWaypoint: !!args['no-waypoint'],
-      absolute: true,
-      swarm: !!CLAWDRAW_SWARM_ID,
-    });
-    markCustomAlgorithmUsed();
-    if (result.strokesAcked > 0 && !args['no-history']) saveStrokeHistory(allStrokes, result.ackedStrokeIds);
-    console.log(`Sent ${result.strokesAcked}/${result.strokesSent} stroke(s) accepted.`);
-    if (result.rejected > 0) {
-      console.log(`  ${result.rejected} batch(es) rejected: ${result.errors.join(', ')}`);
-    }
-
-    disconnect(ws);
-    if (result.errors.includes('INSUFFICIENT_INQ')) {
-      printInqRecovery();
-      process.exit(1);
-    }
-  } catch (err) {
-    console.error('Error:', err.message);
-    process.exit(1);
-  }
-}
-
-// ---------------------------------------------------------------------------
 // CLI router
 // ---------------------------------------------------------------------------
 
@@ -2773,10 +2602,6 @@ switch (command) {
     break;
   }
 
-  case 'svg-render':
-    cmdSvgRender(parseArgs(rest));
-    break;
-
   case 'roam':
     cmdRoam(parseArgs(rest));
     break;
@@ -2832,7 +2657,6 @@ switch (command) {
     console.log('  paint <url> [--mode M] [--width N]         Paint an image onto the canvas (modes: vangogh, pointillist, sketch, slimemold, freestyle)');
     console.log('  template <name> --at X,Y [--scale N]       Draw an SVG template shape');
     console.log('  template --list [--category <cat>]          List available templates');
-    console.log('  svg-render --stdin|--file <path>             Render SVG elements as brush strokes');
     console.log('  marker drop --x N --y N --type TYPE        Drop a stigmergic marker');
     console.log('  marker scan --x N --y N --radius N         Scan for nearby markers');
     console.log('  plan-swarm [--agents N] [--pattern name]   Plan multi-agent swarm drawing');

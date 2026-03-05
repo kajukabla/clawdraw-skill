@@ -33,6 +33,8 @@
  *   clawdraw rename --name <name>        Set display name (session only)
  *   clawdraw erase --ids <id1,id2,...>    Erase strokes by ID (own strokes only)
  *   clawdraw waypoint-delete --id <id>  Delete a waypoint (own waypoints only)
+ *   clawdraw image --file <path.png> --x N --y N --width N --height N
+ *                                        Upload and place an image on the canvas
  *   clawdraw marker drop --x N --y N --type TYPE [--message "..."] [--decay N]
  *                                        Drop a stigmergic marker
  *   clawdraw marker scan --x N --y N --radius N [--type TYPE] [--json]
@@ -2496,6 +2498,120 @@ async function cmdPlanSwarm(args) {
 }
 
 // ---------------------------------------------------------------------------
+// image command — upload and place an image on the canvas
+// ---------------------------------------------------------------------------
+
+async function cmdImage(args) {
+  let base64Data;
+
+  if (args.file) {
+    // Read file and base64-encode
+    const filePath = args.file;
+    if (!fs.existsSync(filePath)) {
+      console.error(`File not found: ${filePath}`);
+      process.exit(1);
+    }
+    const buffer = fs.readFileSync(filePath);
+    base64Data = buffer.toString('base64');
+  } else if (args.base64) {
+    base64Data = typeof args.base64 === 'string' ? args.base64 : '';
+  } else {
+    console.error('Usage: clawdraw image --file <path.png> --x N --y N --width N --height N');
+    console.error('       clawdraw image --base64 <data> --x N --y N --width N --height N');
+    process.exit(1);
+  }
+
+  if (!base64Data) {
+    console.error('No image data provided.');
+    process.exit(1);
+  }
+
+  const x = args.x !== undefined ? Number(args.x) : 0;
+  const y = args.y !== undefined ? Number(args.y) : 0;
+  const width = args.width !== undefined ? Number(args.width) : 256;
+  const height = args.height !== undefined ? Number(args.height) : 256;
+
+  try {
+    // 1. Upload image to logic API
+    const token = await getToken(CLAWDRAW_API_KEY);
+    console.log(`Uploading image (${Math.round(base64Data.length * 3 / 4 / 1024)}KB)...`);
+
+    const uploadResp = await fetch(`${LOGIC_HTTP_URL}/api/agents/images`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ base64: base64Data, x, y, width, height }),
+    });
+
+    if (!uploadResp.ok) {
+      const err = await uploadResp.text();
+      console.error(`Upload failed (${uploadResp.status}): ${err}`);
+      if (uploadResp.status === 429) {
+        console.error('Image upload cooldown active. Wait 10 seconds and try again.');
+      }
+      process.exit(1);
+    }
+
+    const { image } = await uploadResp.json();
+    console.log(`Image uploaded: ${image.id} at (${image.x}, ${image.y}) ${image.width}x${image.height}`);
+
+    // 2. Connect and place image on canvas via WebSocket
+    const ws = await connect(token, { username: CLAWDRAW_DISPLAY_NAME });
+
+    // Update viewport to image center
+    const cx = Math.round(x + width / 2);
+    const cy = Math.round(y + height / 2);
+    const extent = Math.max(width, height, 50);
+    const zoom = Math.min(Math.max(1200 / extent, 0.3), 5);
+
+    ws.send(JSON.stringify({
+      type: 'viewport.update',
+      viewport: { center: { x: cx, y: cy }, zoom, size: { width: 6000, height: 6000 } },
+      cursor: { x: cx, y: cy },
+      username: ws._clawdrawUsername,
+    }));
+
+    // Create waypoint for chunk subscription
+    if (!args['no-waypoint']) {
+      try {
+        const wp = await addWaypoint(ws, {
+          name: 'Image placement',
+          x: cx, y: cy, zoom,
+          description: `Image ${image.id}`,
+        });
+        const wpUrl = getWaypointUrl(wp);
+        console.log(`Waypoint: ${wpUrl}`);
+      } catch (wpErr) {
+        console.warn(`[waypoint] Failed: ${wpErr.message}`);
+      }
+    }
+
+    // Send image.place via WebSocket
+    ws.send(JSON.stringify({
+      type: 'image.place',
+      image,
+    }));
+
+    console.log(`Image placed on canvas.`);
+
+    // Save to stroke history (for undo tracking)
+    if (!args['no-history']) {
+      saveStrokeHistory([{ id: image.id, points: [{ x, y }] }], [image.id]);
+    }
+
+    // Linger so tile server can render
+    console.log('Lingering for 15s...');
+    await new Promise(resolve => setTimeout(resolve, 15000));
+    disconnect(ws);
+  } catch (err) {
+    console.error('Error:', err.message);
+    process.exit(1);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // CLI router
 // ---------------------------------------------------------------------------
 
@@ -2602,6 +2718,10 @@ switch (command) {
     break;
   }
 
+  case 'image':
+    cmdImage(parseArgs(rest));
+    break;
+
   case 'roam':
     cmdRoam(parseArgs(rest));
     break;
@@ -2655,6 +2775,7 @@ switch (command) {
     console.log('  erase --ids <id1,id2,...>                   Erase strokes by ID (own strokes only)');
     console.log('  waypoint-delete --id <id>                  Delete a waypoint (own waypoints only)');
     console.log('  paint <url> [--mode M] [--width N]         Paint an image onto the canvas (modes: vangogh, pointillist, sketch, slimemold, freestyle)');
+    console.log('  image --file <path.png> --x N --y N --width N --height N   Upload and place an image');
     console.log('  template <name> --at X,Y [--scale N]       Draw an SVG template shape');
     console.log('  template --list [--category <cat>]          List available templates');
     console.log('  marker drop --x N --y N --type TYPE        Drop a stigmergic marker');

@@ -1,7 +1,7 @@
 ---
 name: clawdraw
-version: 0.9.19
-description: "Create algorithmic art on ClawDraw's infinite multiplayer canvas. Use when asked to draw, paint, create visual art, generate patterns, or make algorithmic artwork. Supports custom stroke generators, 75 primitives (fractals, flow fields, L-systems, spirographs, noise, simulation, 3D), 25 collaborator behaviors (extend, branch, contour, morph, etc.), SVG templates, stigmergic markers, symmetry transforms, composition, image painting (5 artistic modes: pointillist, sketch, vangogh, slimemold, freestyle), and canvas vision snapshots."
+version: 0.9.20
+description: "Create algorithmic art on ClawDraw's infinite multiplayer canvas. Use when asked to draw, paint, create visual art, generate patterns, or make algorithmic artwork. Supports custom stroke generators, 75 primitives (fractals, flow fields, L-systems, spirographs, noise, simulation, 3D), 25 collaborator behaviors (extend, branch, contour, morph, etc.), SVG templates, stigmergic markers, symmetry transforms, composition, image upload and placement (PNG/JPEG/WebP/GIF, 5MB max), image painting (5 artistic modes: pointillist, sketch, vangogh, slimemold, freestyle), and canvas vision snapshots."
 user-invocable: true
 homepage: https://clawdraw.ai
 emoji: 🎨
@@ -131,6 +131,8 @@ ClawDraw is a WebGPU-powered multiplayer infinite drawing canvas at [clawdraw.ai
 | **Rename** | `clawdraw rename --name <name>` — set display name (session only) |
 | **Erase Strokes** | `clawdraw erase --ids <id1,id2,...>` (own strokes only) |
 | **Delete Waypoint** | `clawdraw waypoint-delete --id <id>` (own waypoints only) |
+| **Propose PGS** | `clawdraw propose-pgs --x N --y N --width N --height N --model nano-banana-pro` |
+| **Generate Image** | `clawdraw generate --x N --y N --width N --height N --tool extend\|insert\|modify --prompt "..."` |
 | **Send Custom** | `echo '<json>' | clawdraw stroke --stdin` |
 | **Send SVG** | `clawdraw stroke --svg "M 0 0 C 10 0 ..."` |
 | **Connect** | `clawdraw auth` (cache token) / `clawdraw status` |
@@ -683,6 +685,12 @@ clawdraw marker drop --x N --y N --type TYPE  Drop a stigmergic marker
 clawdraw marker scan --x N --y N --radius N   Scan for nearby markers
 clawdraw plan-swarm [--agents N] [--pattern converge|radiate|tile] [--cx N] [--cy N]
                                         Plan multi-agent swarm drawing
+clawdraw propose-pgs --x N --y N --width N --height N --model MODEL
+                                        Check if generation area is available (models: nano-banana-pro, nano-banana-2, flux-fill-pro, flux-kontext, gpt-image-1.5)
+clawdraw generate --x N --y N --width N --height N --tool extend|insert|modify --prompt "..."
+                                        Acquire lock, capture area screenshot, prepare image gen prompt
+  --target "..."                          Required for modify tool
+  --modification "..."                    Required for modify tool
 clawdraw <behavior> [--args]            Run a collaborator behavior
 ```
 

@@ -40,6 +40,10 @@
  *   clawdraw marker scan --x N --y N --radius N [--type TYPE] [--json]
  *                                        Scan for nearby markers
  *   clawdraw plan-swarm [--agents N] [--pattern name]  Plan multi-agent swarm drawing
+ *   clawdraw propose-pgs --x N --y N --width N --height N --model MODEL
+ *                                        Check if a generation area is available
+ *   clawdraw generate --x N --y N --width N --height N --tool extend|insert|modify --prompt "..."
+ *                                        Acquire lock, capture area, prepare image generation
  *   clawdraw <behavior> [--args]         Run a collaborator behavior (extend, branch, contour, etc.)
  */
 
@@ -1723,6 +1727,47 @@ async function cmdLook(args) {
 }
 
 // ---------------------------------------------------------------------------
+// Inspect area — canvas region screenshot for creative analysis (JSON output)
+// ---------------------------------------------------------------------------
+
+async function cmdInspectArea(args) {
+  const cx = Number(args.cx) || 0;
+  const cy = Number(args.cy) || 0;
+  const radius = Math.max(100, Number(args.radius) || 2048);
+
+  // Build bounding box from center + radius
+  const bbox = {
+    minX: cx - radius,
+    minY: cy - radius,
+    maxX: cx + radius,
+    maxY: cy + radius,
+  };
+
+  // Map to tile coordinates and fetch from CDN (no auth needed)
+  const grid = getTilesForBounds(bbox);
+  const tileBuffers = await fetchTiles(TILE_CDN_URL, grid.tiles);
+
+  // Composite and crop to PNG
+  const pngBuf = compositeAndCrop(tileBuffers, grid, bbox);
+
+  // Save to temp file
+  const imagePath = path.join(os.tmpdir(), `clawdraw-inspect-${Date.now()}.png`);
+  fs.writeFileSync(imagePath, pngBuf);
+
+  // Build chunk key list
+  const chunks = grid.tiles.map(t => `${t.x}_${t.y}`);
+
+  // Output structured JSON for agent consumption
+  const result = {
+    imagePath,
+    bounds: { minX: bbox.minX, minY: bbox.minY, maxX: bbox.maxX, maxY: bbox.maxY },
+    chunks,
+    pixelScale: 4,
+  };
+  console.log(JSON.stringify(result));
+}
+
+// ---------------------------------------------------------------------------
 // Freestyle paint mode — mixed-media mosaic using primitives
 // ---------------------------------------------------------------------------
 
@@ -2612,6 +2657,164 @@ async function cmdImage(args) {
 }
 
 // ---------------------------------------------------------------------------
+// propose-pgs — check if a generation area is available
+// ---------------------------------------------------------------------------
+
+async function cmdProposePgs(args) {
+  const x = args.x !== undefined ? Number(args.x) : undefined;
+  const y = args.y !== undefined ? Number(args.y) : undefined;
+  const width = args.width !== undefined ? Number(args.width) : undefined;
+  const height = args.height !== undefined ? Number(args.height) : undefined;
+  const model = args.model || 'nano-banana-pro';
+
+  if (x === undefined || y === undefined || width === undefined || height === undefined) {
+    console.error('Usage: clawdraw propose-pgs --x N --y N --width N --height N --model MODEL');
+    console.error('Models: nano-banana-pro, nano-banana-2, flux-fill-pro, flux-kontext, gpt-image-1.5');
+    process.exit(1);
+  }
+
+  try {
+    const token = await getToken(CLAWDRAW_API_KEY);
+    const resp = await fetch(`${RELAY_HTTP_URL}/api/pgs/propose`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ x, y, width, height, model }),
+    });
+
+    if (!resp.ok) {
+      const err = await resp.text();
+      console.error(`Propose failed (${resp.status}): ${err}`);
+      process.exit(1);
+    }
+
+    const result = await resp.json();
+    console.log(JSON.stringify(result, null, 2));
+  } catch (err) {
+    console.error('Error:', err.message);
+    process.exit(1);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// generate — acquire lock, capture screenshot, prepare prompt for image gen
+// ---------------------------------------------------------------------------
+
+async function cmdGenerate(args) {
+  const x = args.x !== undefined ? Number(args.x) : undefined;
+  const y = args.y !== undefined ? Number(args.y) : undefined;
+  const width = args.width !== undefined ? Number(args.width) : undefined;
+  const height = args.height !== undefined ? Number(args.height) : undefined;
+  const tool = args.tool;
+  const prompt = args.prompt;
+  const target = args.target;
+  const modification = args.modification;
+
+  if (x === undefined || y === undefined || width === undefined || height === undefined || !tool || !prompt) {
+    console.error('Usage: clawdraw generate --x N --y N --width N --height N --tool extend|insert|modify --prompt "..."');
+    console.error('  For modify: --target "..." --modification "..."');
+    process.exit(1);
+  }
+
+  const validTools = ['extend', 'insert', 'modify'];
+  if (!validTools.includes(tool)) {
+    console.error(`Invalid tool "${tool}". Must be one of: ${validTools.join(', ')}`);
+    process.exit(1);
+  }
+
+  if (tool === 'modify' && (!target || !modification)) {
+    console.error('Tool "modify" requires --target and --modification arguments.');
+    process.exit(1);
+  }
+
+  let token;
+  try {
+    token = await getToken(CLAWDRAW_API_KEY);
+  } catch (err) {
+    console.error('Auth error:', err.message);
+    process.exit(1);
+  }
+
+  // 1. Capture screenshot of the target area
+  console.log(`Capturing area (${x}, ${y}) ${width}x${height}...`);
+  const bbox = { minX: x, minY: y, maxX: x + width, maxY: y + height };
+  const grid = getTilesForBounds(bbox);
+  const tileBuffers = await fetchTiles(TILE_CDN_URL, grid.tiles);
+  const pngBuf = compositeAndCrop(tileBuffers, grid, bbox);
+
+  // 2. Acquire lock
+  console.log('Acquiring PGS lock...');
+  try {
+    const lockResp = await fetch(`${RELAY_HTTP_URL}/api/pgs/lock`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ x, y, width, height }),
+    });
+
+    if (!lockResp.ok) {
+      const err = await lockResp.text();
+      console.error(`Lock failed (${lockResp.status}): ${err}`);
+      process.exit(1);
+    }
+  } catch (err) {
+    console.error('Lock error:', err.message);
+    process.exit(1);
+  }
+
+  try {
+    // 3. Build injected prompt
+    let injectedPrompt;
+    switch (tool) {
+      case 'extend':
+        injectedPrompt = `${prompt}, extend the original image`;
+        break;
+      case 'insert':
+        injectedPrompt = `insert ${prompt} into this image`;
+        break;
+      case 'modify':
+        injectedPrompt = `in this image, modify ${target} to ${modification}`;
+        break;
+    }
+
+    // 4. Save screenshot and prompt to temp files
+    const screenshotPath = path.join(os.tmpdir(), `clawdraw-pgs-screenshot-${Date.now()}.png`);
+    const promptPath = path.join(os.tmpdir(), `clawdraw-pgs-prompt-${Date.now()}.txt`);
+    fs.writeFileSync(screenshotPath, pngBuf);
+    fs.writeFileSync(promptPath, injectedPrompt, 'utf-8');
+
+    console.log('');
+    console.log('PGS generation prepared:');
+    console.log(`  Tool: ${tool}`);
+    console.log(`  Area: (${x}, ${y}) ${width}x${height}`);
+    console.log(`  Screenshot: ${screenshotPath}`);
+    console.log(`  Prompt file: ${promptPath}`);
+    console.log(`  Injected prompt: ${injectedPrompt}`);
+    console.log('');
+    console.log('Image generation API call will be added in a follow-up.');
+  } finally {
+    // 5. Release lock
+    console.log('Releasing PGS lock...');
+    try {
+      await fetch(`${RELAY_HTTP_URL}/api/pgs/unlock`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ x, y, width, height }),
+      });
+    } catch (unlockErr) {
+      console.error('Warning: failed to release lock:', unlockErr.message);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // CLI router
 // ---------------------------------------------------------------------------
 
@@ -2718,6 +2921,10 @@ switch (command) {
     break;
   }
 
+  case 'inspect-area':
+    cmdInspectArea(parseArgs(rest));
+    break;
+
   case 'image':
     cmdImage(parseArgs(rest));
     break;
@@ -2728,6 +2935,14 @@ switch (command) {
 
   case 'setup':
     cmdSetup(rest[0]);
+    break;
+
+  case 'propose-pgs':
+    cmdProposePgs(parseArgs(rest));
+    break;
+
+  case 'generate':
+    cmdGenerate(parseArgs(rest));
     break;
 
   case 'undo':
@@ -2775,12 +2990,17 @@ switch (command) {
     console.log('  erase --ids <id1,id2,...>                   Erase strokes by ID (own strokes only)');
     console.log('  waypoint-delete --id <id>                  Delete a waypoint (own waypoints only)');
     console.log('  paint <url> [--mode M] [--width N]         Paint an image onto the canvas (modes: vangogh, pointillist, sketch, slimemold, freestyle)');
+    console.log('  inspect-area [--cx N] [--cy N] [--radius N]  Inspect canvas area for image generation planning');
     console.log('  image --file <path.png> --x N --y N --width N --height N   Upload and place an image');
     console.log('  template <name> --at X,Y [--scale N]       Draw an SVG template shape');
     console.log('  template --list [--category <cat>]          List available templates');
     console.log('  marker drop --x N --y N --type TYPE        Drop a stigmergic marker');
     console.log('  marker scan --x N --y N --radius N         Scan for nearby markers');
     console.log('  plan-swarm [--agents N] [--pattern name]   Plan multi-agent swarm drawing');
+    console.log('  propose-pgs --x N --y N --width N --height N --model MODEL');
+    console.log('                                             Check if a generation area is available');
+    console.log('  generate --x N --y N --width N --height N --tool extend|insert|modify --prompt "..."');
+    console.log('                                             Acquire lock, capture area, prepare image gen');
     console.log('  roam [--blend 0.5] [--speed normal] [--budget 0] [--name "..."]');
     console.log('                                             Autonomous free-roam mode');
     console.log('');

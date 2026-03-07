@@ -35,8 +35,8 @@ import { getToken, createAgent, getAgentInfo, writeApiKey, readApiKey } from './
 import { connect, addWaypoint, getWaypointUrl, deleteWaypoint, setUsername, disconnect } from './connection.mjs';
 import { getTilesForBounds, fetchTiles, compositeAndCrop } from './snapshot.mjs';
 
-const RELAY_HTTP_URL = 'https://relay.clawdraw.ai';
-const LOGIC_HTTP_URL = 'https://api.clawdraw.ai';
+const RELAY_HTTP_URL = process.env.CLAWDRAW_RELAY_URL || 'https://relay.clawdraw.ai';
+const LOGIC_HTTP_URL = process.env.CLAWDRAW_LOGIC_URL || 'https://api.clawdraw.ai';
 
 const CLAWDRAW_API_KEY = process.env.CLAWDRAW_API_KEY;
 const CLAWDRAW_DISPLAY_NAME = process.env.CLAWDRAW_DISPLAY_NAME || undefined;
@@ -593,7 +593,7 @@ async function cmdChat(args) {
   }
 }
 
-const TILE_CDN_URL = 'https://relay.clawdraw.ai/tiles';
+const TILE_CDN_URL = (process.env.CLAWDRAW_RELAY_URL || 'https://relay.clawdraw.ai') + '/tiles';
 
 // ---------------------------------------------------------------------------
 // Inspect area — canvas region screenshot for creative analysis (JSON output)
@@ -1059,6 +1059,8 @@ async function cmdGenerate(args) {
       console.error(`Lock failed (${lockResp.status}): ${err}`);
       process.exit(1);
     }
+    var lockData = await lockResp.json();
+    var lockId = lockData.lockId;
   } catch (err) {
     console.error('Lock error:', err.message);
     process.exit(1);
@@ -1093,7 +1095,8 @@ async function cmdGenerate(args) {
     console.log(`  Prompt file: ${promptPath}`);
     console.log(`  Injected prompt: ${injectedPrompt}`);
     console.log('');
-    console.log('Image generation API call will be added in a follow-up.');
+    console.log('Use your image generation tool to create an image from the screenshot + prompt.');
+    console.log('Then place it via POST /api/agents/images with { base64, x, y, width, height }');
   } finally {
     // 5. Release lock
     console.log('Releasing PGS lock...');
@@ -1104,12 +1107,62 @@ async function cmdGenerate(args) {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ x, y, width, height }),
+        body: JSON.stringify({ lockId }),
       });
     } catch (unlockErr) {
       console.error('Warning: failed to release lock:', unlockErr.message);
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// place-image — place a local image file on the canvas via agent API
+// ---------------------------------------------------------------------------
+
+async function cmdPlaceImage(args) {
+  const filePath = args.file;
+  const x = Number(args.x);
+  const y = Number(args.y);
+  const width = Number(args.width);
+  const height = Number(args.height);
+
+  if (!filePath) { console.error('--file is required'); process.exit(1); }
+  if (isNaN(x) || isNaN(y) || isNaN(width) || isNaN(height)) {
+    console.error('--x, --y, --width, --height are required numbers');
+    process.exit(1);
+  }
+
+  if (!fs.existsSync(filePath)) {
+    console.error(`File not found: ${filePath}`);
+    process.exit(1);
+  }
+
+  const token = await getToken(CLAWDRAW_API_KEY);
+  const imageBuffer = fs.readFileSync(filePath);
+  const base64 = imageBuffer.toString('base64');
+
+  console.log(`Placing image ${filePath} at (${x}, ${y}) ${width}x${height}...`);
+
+  const resp = await fetch(`${LOGIC_HTTP_URL}/api/agents/images`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ base64, x, y, width, height }),
+  });
+
+  if (!resp.ok) {
+    const err = await resp.text();
+    console.error(`Place failed (${resp.status}): ${err}`);
+    process.exit(1);
+  }
+
+  const result = await resp.json();
+  console.log(`Image placed: ${result.image.id}`);
+
+  // Save to undo history
+  saveImageHistory([result.image.id]);
 }
 
 // ---------------------------------------------------------------------------
@@ -1168,6 +1221,10 @@ switch (command) {
     cmdGenerate(parseArgs(rest));
     break;
 
+  case 'place-image':
+    cmdPlaceImage(parseArgs(rest));
+    break;
+
   case 'undo':
     cmdUndo(parseArgs(rest));
     break;
@@ -1214,6 +1271,7 @@ switch (command) {
     console.log('  inspect-area [--cx N] [--cy N] [--radius N]  Inspect canvas area');
     console.log('  propose-pgs --x N --y N --width N --height N --model MODEL  Validate generation area');
     console.log('  generate --x N --y N --width N --height N --tool extend|insert|modify --prompt "..."  Generate image');
+    console.log('  place-image --file <path> --x N --y N --width N --height N  Place image on canvas');
     console.log('  undo [--count N]               Undo last N image placements');
     console.log('  chat --message "..."           Send a chat message');
     console.log('  waypoint --name "..." --x N --y N --zoom Z  Drop a waypoint');

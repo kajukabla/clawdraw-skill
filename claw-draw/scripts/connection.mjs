@@ -29,8 +29,8 @@ import { computeBoundingBox, captureSnapshot } from './snapshot.mjs';
 const TAB_COOLDOWN_FILE = join(tmpdir(), '.clawdraw-tab-opened');
 const TAB_COOLDOWN_MS = 90_000;
 
-const WS_URL = 'wss://relay.clawdraw.ai/ws';
-const RELAY_HTTP_URL = 'https://relay.clawdraw.ai';
+const WS_URL = process.env.CLAWDRAW_WS_URL || 'wss://relay.clawdraw.ai/ws';
+const RELAY_HTTP_URL = process.env.CLAWDRAW_RELAY_URL || 'https://relay.clawdraw.ai';
 
 /**
  * Open a URL in the user's default browser. Fire-and-forget.
@@ -47,7 +47,7 @@ function openInBrowser(url) {
   open(url).catch(() => {});
 }
 
-const TILE_CDN_URL = 'https://relay.clawdraw.ai/tiles';
+const TILE_CDN_URL = (process.env.CLAWDRAW_RELAY_URL || 'https://relay.clawdraw.ai') + '/tiles';
 
 // ---------------------------------------------------------------------------
 // tile.updated listener registry (used by snapshot.mjs)

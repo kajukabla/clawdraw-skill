@@ -23,7 +23,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
-const LOGIC_URL = 'https://api.clawdraw.ai';
+const LOGIC_URL = process.env.CLAWDRAW_LOGIC_URL || 'https://api.clawdraw.ai';
 const CACHE_DIR = path.join(os.homedir(), '.clawdraw');
 const CACHE_FILE = path.join(CACHE_DIR, 'token.json');
 const APIKEY_FILE = path.join(CACHE_DIR, 'apikey.json');

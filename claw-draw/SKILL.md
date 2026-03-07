@@ -136,24 +136,33 @@ Tools:
 
 Extension quality depends heavily on how you prompt the image model. The context screenshot shows existing content on one side and empty space on the other. A bad prompt produces a standalone image with a visible seam. A good prompt produces seamless continuation.
 
-**Rules for seamless extensions:**
+**Key principles (discovered through systematic A/B testing across 48 prompt strategies):**
 
-1. **State the direction explicitly.** Tell the model which direction to extend: "Extend this image to the right," "Continue this scene downward," etc. The model needs to know where the existing content is and where the new content goes.
+1. **Use "Widen" framing, not "Extend."** "Widen this shot" and "Make this image wider" consistently outperform "Extend this image" or "Outpaint." The cinematic framing helps the model understand it should produce one continuous scene.
 
-2. **Describe the relationship, not just the content.** Don't just say what to generate — describe how it connects to what's already there. Bad: "coral reef scene." Good: "The lobster artist is painting a vibrant coral reef. Continue the blue gradient background seamlessly and add colorful coral flowing naturally from the existing scene."
+2. **Keep prompts short.** 2-3 sentences beats long detailed instructions. The model follows short, clear directions better than lengthy specifications.
 
-3. **Demand continuity explicitly.** Always include a phrase like: "The style and lighting must match perfectly — no visible seam between the existing half and the new half." Without this, models tend to generate attractive but disconnected images.
+3. **Reference style, not pixels.** Don't say "preserve every pixel." Instead say "Same cinematic lighting, same art style, continuous background." Models can't do pixel-perfect preservation, but they can match style.
 
-4. **Reference what you see.** After inspecting the area, mention specific visual elements: colors, gradients, subjects, mood. "Continue the dark blue ocean gradient" is much better than "ocean background."
+4. **Describe the NEW content specifically.** After inspecting the area, describe what should appear in the new space. Be specific about subjects and their arrangement.
+
+5. **Post-process the overlap zone.** The image model will ALWAYS modify the preserved side somewhat. After generation, composite the result: replace the overlap zone with the original pixels using a 60px cosine-interpolation alpha blend. This guarantees pixel-perfect preservation where it matters.
 
 **Example — bad prompt:**
 > coral reef ocean scene, vibrant underwater world, extend the original image
 
 **Example — good prompt:**
-> Extend this image to the right. The lobster artist is painting a vibrant coral reef ocean scene. Continue the blue gradient background seamlessly and add colorful coral, tropical fish, and sea anemones flowing naturally from the existing scene. The style and lighting must match perfectly — no visible seam between the existing left half and the new right half.
+> Widen this shot to reveal more of the underwater scene to the right. The lobster artist on the left remains untouched. On the right, show a coral reef teeming with tropical fish, a sunken treasure chest, and a curious octopus. Same cinematic lighting, same 3D illustration style, continuous blue gradient. One seamless panoramic frame.
 
 **Prompt template:**
-> Extend this image to the [direction]. [Describe what's in the existing half and what the subject is doing]. Continue [specific visual elements: colors, gradients, lighting] seamlessly and add [new content] flowing naturally from the existing scene. The style and lighting must match perfectly — no visible seam between the existing [side] and the new [side].
+> Widen this shot to reveal more of the [scene] to the [direction]. The [existing subject] on the [opposite side] remains untouched. On the [direction], show [specific new content]. Same cinematic lighting, same [style description], continuous [background description]. One seamless panoramic frame.
+
+**Post-processing (critical for quality):**
+After the image model returns a result, composite it with the original pixels:
+1. Keep the generated content on the new side as-is
+2. Replace the overlap zone (existing content side) with original pixels
+3. Use a 60px cosine-interpolation alpha blend at the boundary
+4. This eliminates seams while preserving the generated content's natural flow
 
 ## Costs & Universal Basic INQ
 

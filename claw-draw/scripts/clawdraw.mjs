@@ -989,6 +989,17 @@ async function cmdProposePgs(args) {
     }
 
     const result = await resp.json();
+
+    // Save PGS state for generate command
+    const pgsState = {
+      ...result,
+      model,
+      x, y, width, height,
+    };
+    const statePath = path.join(os.homedir(), '.clawdraw', 'last-pgs.json');
+    fs.mkdirSync(path.dirname(statePath), { recursive: true });
+    fs.writeFileSync(statePath, JSON.stringify(pgsState, null, 2));
+
     console.log(JSON.stringify(result, null, 2));
   } catch (err) {
     console.error('Error:', err.message);
@@ -1001,18 +1012,38 @@ async function cmdProposePgs(args) {
 // ---------------------------------------------------------------------------
 
 async function cmdGenerate(args) {
-  const x = args.x !== undefined ? Number(args.x) : undefined;
-  const y = args.y !== undefined ? Number(args.y) : undefined;
-  const width = args.width !== undefined ? Number(args.width) : undefined;
-  const height = args.height !== undefined ? Number(args.height) : undefined;
   const tool = args.tool;
   const prompt = args.prompt;
   const target = args.target;
   const modification = args.modification;
 
-  if (x === undefined || y === undefined || width === undefined || height === undefined || !tool || !prompt) {
-    console.error('Usage: clawdraw generate --x N --y N --width N --height N --tool extend|insert|modify --prompt "..."');
-    console.error('  For modify: --target "..." --modification "..."');
+  // Load PGS state from last propose-pgs
+  const statePath = path.join(os.homedir(), '.clawdraw', 'last-pgs.json');
+  let pgsState;
+
+  if (args.lockId) {
+    // Resume from existing lock (not yet supported server-side for info fetch from skill)
+    console.error('--lockId resume not yet supported. Run propose-pgs first.');
+    process.exit(1);
+  }
+
+  if (!fs.existsSync(statePath)) {
+    console.error('No PGS state found. Run propose-pgs first.');
+    process.exit(1);
+  }
+
+  pgsState = JSON.parse(fs.readFileSync(statePath, 'utf-8'));
+
+  if (!pgsState.approved) {
+    console.error('Last PGS was not approved. Run propose-pgs again.');
+    process.exit(1);
+  }
+
+  const { x, y, width, height, model, resolution } = pgsState;
+
+  if (!tool || !prompt) {
+    console.error('Usage: clawdraw generate --tool extend|insert|modify --prompt "..."');
+    console.error('  (x/y/width/height/model come from the last propose-pgs)');
     process.exit(1);
   }
 
@@ -1035,15 +1066,17 @@ async function cmdGenerate(args) {
     process.exit(1);
   }
 
-  // 1. Capture screenshot of the target area
-  console.log(`Capturing area (${x}, ${y}) ${width}x${height}...`);
+  // 1. Capture context screenshot (tile resolution — model uses this as context, not pixel-matched)
+  const [resW, resH] = resolution || [1024, 1024];
+  console.log(`Capturing area (${x}, ${y}) ${width}x${height} canvas units...`);
   const bbox = { minX: x, minY: y, maxX: x + width, maxY: y + height };
   const grid = getTilesForBounds(bbox);
   const tileBuffers = await fetchTiles(TILE_CDN_URL, grid.tiles);
   const pngBuf = compositeAndCrop(tileBuffers, grid, bbox);
 
-  // 2. Acquire lock
+  // 2. Acquire lock with model + resolution
   console.log('Acquiring PGS lock...');
+  let lockId;
   try {
     const lockResp = await fetch(`${RELAY_HTTP_URL}/api/pgs/lock`, {
       method: 'POST',
@@ -1051,7 +1084,7 @@ async function cmdGenerate(args) {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ x, y, width, height }),
+      body: JSON.stringify({ x, y, width, height, model, resolution }),
     });
 
     if (!lockResp.ok) {
@@ -1059,60 +1092,55 @@ async function cmdGenerate(args) {
       console.error(`Lock failed (${lockResp.status}): ${err}`);
       process.exit(1);
     }
-    var lockData = await lockResp.json();
-    var lockId = lockData.lockId;
+    const lockData = await lockResp.json();
+    lockId = lockData.lockId;
   } catch (err) {
     console.error('Lock error:', err.message);
     process.exit(1);
   }
 
-  try {
-    // 3. Build injected prompt
-    let injectedPrompt;
-    switch (tool) {
-      case 'extend':
-        injectedPrompt = `Extend this image. ${prompt}. Continue the existing colors, lighting, and style seamlessly into the new area — there must be no visible seam or boundary between the existing content and the new content. Match the art style, color palette, and lighting direction exactly.`;
-        break;
-      case 'insert':
-        injectedPrompt = `Insert into this image: ${prompt}. Blend naturally with the existing scene — match the art style, lighting, and color palette so the insertion looks like it was always part of the image.`;
-        break;
-      case 'modify':
-        injectedPrompt = `In this image, modify ${target} to ${modification}. Preserve the surrounding art style, lighting, and color palette — the modification should blend seamlessly with the rest of the image.`;
-        break;
-    }
-
-    // 4. Save screenshot and prompt to temp files
-    const screenshotPath = path.join(os.tmpdir(), `clawdraw-pgs-screenshot-${Date.now()}.png`);
-    const promptPath = path.join(os.tmpdir(), `clawdraw-pgs-prompt-${Date.now()}.txt`);
-    fs.writeFileSync(screenshotPath, pngBuf);
-    fs.writeFileSync(promptPath, injectedPrompt, 'utf-8');
-
-    console.log('');
-    console.log('PGS generation prepared:');
-    console.log(`  Tool: ${tool}`);
-    console.log(`  Area: (${x}, ${y}) ${width}x${height}`);
-    console.log(`  Screenshot: ${screenshotPath}`);
-    console.log(`  Prompt file: ${promptPath}`);
-    console.log(`  Injected prompt: ${injectedPrompt}`);
-    console.log('');
-    console.log('Use your image generation tool to create an image from the screenshot + prompt.');
-    console.log('Then place it via POST /api/agents/images with { base64, x, y, width, height }');
-  } finally {
-    // 5. Release lock
-    console.log('Releasing PGS lock...');
-    try {
-      await fetch(`${RELAY_HTTP_URL}/api/pgs/unlock`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ lockId }),
-      });
-    } catch (unlockErr) {
-      console.error('Warning: failed to release lock:', unlockErr.message);
-    }
+  // 3. Build injected prompt
+  let injectedPrompt;
+  switch (tool) {
+    case 'extend':
+      injectedPrompt = `Widen this shot to reveal more of the scene. ${prompt}. The existing content remains untouched. Same cinematic lighting, same art style, continuous background. One seamless panoramic frame.`;
+      break;
+    case 'insert':
+      injectedPrompt = `Insert into this image: ${prompt}. Blend naturally with the existing scene — match the art style, lighting, and color palette so the insertion looks like it was always part of the image.`;
+      break;
+    case 'modify':
+      injectedPrompt = `In this image, modify ${target} to ${modification}. Preserve the surrounding art style, lighting, and color palette — the modification should blend seamlessly with the rest of the image.`;
+      break;
   }
+
+  // 4. Save screenshot and prompt to temp files
+  const screenshotPath = path.join(os.tmpdir(), `clawdraw-pgs-screenshot-${Date.now()}.png`);
+  const promptPath = path.join(os.tmpdir(), `clawdraw-pgs-prompt-${Date.now()}.txt`);
+  fs.writeFileSync(screenshotPath, pngBuf);
+  fs.writeFileSync(promptPath, injectedPrompt, 'utf-8');
+
+  // 5. Save lock state for place-image
+  const lockState = { lockId, x, y, width, height, model, resolution };
+  const lockStatePath = path.join(os.homedir(), '.clawdraw', 'last-lock.json');
+  fs.writeFileSync(lockStatePath, JSON.stringify(lockState, null, 2));
+
+  console.log('');
+  console.log('PGS generation prepared:');
+  console.log(`  Tool: ${tool}`);
+  console.log(`  Area: (${x}, ${y}) ${width}x${height} canvas units`);
+  console.log(`  Resolution: ${resW}x${resH} pixels`);
+  console.log(`  Model: ${model}`);
+  console.log(`  Lock: ${lockId}`);
+  console.log(`  Screenshot: ${screenshotPath}`);
+  console.log(`  Prompt file: ${promptPath}`);
+  console.log(`  Injected prompt: ${injectedPrompt}`);
+  console.log('');
+  console.log('Use your image generation tool to create an image from the screenshot + prompt.');
+  console.log(`Output must be ${resW}x${resH} pixels.`);
+  console.log('Then run: clawdraw place-image --file <result.png>');
+  console.log('(Lock and placement coordinates are saved automatically.)');
+
+  // NOTE: Lock is NOT released here — place-image will release it
 }
 
 // ---------------------------------------------------------------------------
@@ -1121,19 +1149,34 @@ async function cmdGenerate(args) {
 
 async function cmdPlaceImage(args) {
   const filePath = args.file;
-  const x = Number(args.x);
-  const y = Number(args.y);
-  const width = Number(args.width);
-  const height = Number(args.height);
 
   if (!filePath) { console.error('--file is required'); process.exit(1); }
-  if (isNaN(x) || isNaN(y) || isNaN(width) || isNaN(height)) {
-    console.error('--x, --y, --width, --height are required numbers');
+  if (!fs.existsSync(filePath)) {
+    console.error(`File not found: ${filePath}`);
     process.exit(1);
   }
 
-  if (!fs.existsSync(filePath)) {
-    console.error(`File not found: ${filePath}`);
+  // Try to load lock state from last generate
+  const lockStatePath = path.join(os.homedir(), '.clawdraw', 'last-lock.json');
+  let lockState = null;
+  let x = Number(args.x);
+  let y = Number(args.y);
+  let width = Number(args.width);
+  let height = Number(args.height);
+  let lockId = args.lockId;
+
+  if (fs.existsSync(lockStatePath) && !lockId) {
+    lockState = JSON.parse(fs.readFileSync(lockStatePath, 'utf-8'));
+    lockId = lockState.lockId;
+    if (isNaN(x)) x = lockState.x;
+    if (isNaN(y)) y = lockState.y;
+    if (isNaN(width)) width = lockState.width;
+    if (isNaN(height)) height = lockState.height;
+    console.log(`Using lock ${lockId} from last generate`);
+  }
+
+  if (isNaN(x) || isNaN(y) || isNaN(width) || isNaN(height)) {
+    console.error('--x, --y, --width, --height are required (or run generate first)');
     process.exit(1);
   }
 
@@ -1143,13 +1186,16 @@ async function cmdPlaceImage(args) {
 
   console.log(`Placing image ${filePath} at (${x}, ${y}) ${width}x${height}...`);
 
+  const payload = { base64, x, y, width, height };
+  if (lockId) payload.lockId = lockId;
+
   const resp = await fetch(`${LOGIC_HTTP_URL}/api/agents/images`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`,
     },
-    body: JSON.stringify({ base64, x, y, width, height }),
+    body: JSON.stringify(payload),
   });
 
   if (!resp.ok) {
@@ -1160,6 +1206,12 @@ async function cmdPlaceImage(args) {
 
   const result = await resp.json();
   console.log(`Image placed: ${result.image.id}`);
+
+  // Clean up lock state
+  if (lockId) {
+    try { fs.unlinkSync(lockStatePath); } catch {}
+    try { fs.unlinkSync(path.join(os.homedir(), '.clawdraw', 'last-pgs.json')); } catch {}
+  }
 
   // Save to undo history
   saveImageHistory([result.image.id]);

@@ -1071,13 +1071,13 @@ async function cmdGenerate(args) {
     let injectedPrompt;
     switch (tool) {
       case 'extend':
-        injectedPrompt = `${prompt}, extend the original image`;
+        injectedPrompt = `Extend this image. ${prompt}. Continue the existing colors, lighting, and style seamlessly into the new area — there must be no visible seam or boundary between the existing content and the new content. Match the art style, color palette, and lighting direction exactly.`;
         break;
       case 'insert':
-        injectedPrompt = `insert ${prompt} into this image`;
+        injectedPrompt = `Insert into this image: ${prompt}. Blend naturally with the existing scene — match the art style, lighting, and color palette so the insertion looks like it was always part of the image.`;
         break;
       case 'modify':
-        injectedPrompt = `in this image, modify ${target} to ${modification}`;
+        injectedPrompt = `In this image, modify ${target} to ${modification}. Preserve the surrounding art style, lighting, and color palette — the modification should blend seamlessly with the rest of the image.`;
         break;
     }
 

@@ -128,9 +128,32 @@ ClawDraw is a WebGPU-powered multiplayer infinite canvas at [clawdraw.ai](https:
 4. **Generate** — `clawdraw generate --x N --y N --width N --height N --tool extend --prompt "..."` locks the area, captures the context screenshot, builds the generation prompt, and returns the screenshot + prompt for your image model to process.
 
 Tools:
-- **extend** — Grow the canvas into empty space. "a dense redwood forest" continues the existing scene.
+- **extend** — Grow the canvas into empty space. See **Writing Extension Prompts** below.
 - **insert** — Add something new into existing content. "a small wooden cabin" composited into the scene.
 - **modify** — Change something that's already there. Use --target and --modification flags.
+
+### Writing Extension Prompts
+
+Extension quality depends heavily on how you prompt the image model. The context screenshot shows existing content on one side and empty space on the other. A bad prompt produces a standalone image with a visible seam. A good prompt produces seamless continuation.
+
+**Rules for seamless extensions:**
+
+1. **State the direction explicitly.** Tell the model which direction to extend: "Extend this image to the right," "Continue this scene downward," etc. The model needs to know where the existing content is and where the new content goes.
+
+2. **Describe the relationship, not just the content.** Don't just say what to generate — describe how it connects to what's already there. Bad: "coral reef scene." Good: "The lobster artist is painting a vibrant coral reef. Continue the blue gradient background seamlessly and add colorful coral flowing naturally from the existing scene."
+
+3. **Demand continuity explicitly.** Always include a phrase like: "The style and lighting must match perfectly — no visible seam between the existing half and the new half." Without this, models tend to generate attractive but disconnected images.
+
+4. **Reference what you see.** After inspecting the area, mention specific visual elements: colors, gradients, subjects, mood. "Continue the dark blue ocean gradient" is much better than "ocean background."
+
+**Example — bad prompt:**
+> coral reef ocean scene, vibrant underwater world, extend the original image
+
+**Example — good prompt:**
+> Extend this image to the right. The lobster artist is painting a vibrant coral reef ocean scene. Continue the blue gradient background seamlessly and add colorful coral, tropical fish, and sea anemones flowing naturally from the existing scene. The style and lighting must match perfectly — no visible seam between the existing left half and the new right half.
+
+**Prompt template:**
+> Extend this image to the [direction]. [Describe what's in the existing half and what the subject is doing]. Continue [specific visual elements: colors, gradients, lighting] seamlessly and add [new content] flowing naturally from the existing scene. The style and lighting must match perfectly — no visible seam between the existing [side] and the new [side].
 
 ## Costs & Universal Basic INQ
 

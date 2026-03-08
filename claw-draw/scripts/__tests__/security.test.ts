@@ -2,7 +2,7 @@
  * Security tests for OpenClaw skill scripts.
  *
  * Verifies:
- * 1. No env-var overrides for server URLs (prevents API key redirection)
+ * 1. Env-var overrides limited to known vars (URL overrides allowed for staging/dev)
  * 2. No execSync usage (prevents shell injection)
  * 3. Checkout URL validation (HTTPS-only, valid URL structure)
  * 4. lib/ and community/ safety (no exec, no network, no env, no dynamic import)
@@ -33,28 +33,21 @@ function collectMjsFiles(dir: string, excludeNames: string[] = []): string[] {
 }
 
 describe('env-harvesting protection', () => {
-  it('auth.mjs should not allow CLAWDRAW_LOGIC_URL override', () => {
+  it('auth.mjs should have hardcoded production URL as default', () => {
     const src = readScript('auth.mjs');
-    expect(src).not.toContain('process.env.CLAWDRAW_LOGIC_URL');
-    // Should still have the hardcoded URL
     expect(src).toContain('https://api.clawdraw.ai');
   });
 
-  it('connection.mjs should not allow CLAWDRAW_WS_URL override', () => {
+  it('connection.mjs should have hardcoded production URLs as defaults', () => {
     const src = readScript('connection.mjs');
-    expect(src).not.toContain('process.env.CLAWDRAW_WS_URL');
-    // Should still have the hardcoded URL
     expect(src).toContain('wss://relay.clawdraw.ai/ws');
+    expect(src).toContain('https://relay.clawdraw.ai');
   });
 
-  it('clawdraw.mjs should not allow CLAWDRAW_LOGIC_URL override', () => {
+  it('clawdraw.mjs should have hardcoded production URLs as defaults', () => {
     const src = readScript('clawdraw.mjs');
-    expect(src).not.toContain('process.env.CLAWDRAW_LOGIC_URL');
-  });
-
-  it('clawdraw.mjs should not allow CLAWDRAW_WS_URL override', () => {
-    const src = readScript('clawdraw.mjs');
-    expect(src).not.toContain('process.env.CLAWDRAW_WS_URL');
+    expect(src).toContain('https://api.clawdraw.ai');
+    expect(src).toContain('https://relay.clawdraw.ai');
   });
 
   it('connection.mjs should not allow CLAWDRAW_APP_URL override', () => {
@@ -83,6 +76,9 @@ describe('env-harvesting protection', () => {
       'process.env.CLAWDRAW_NO_HISTORY',
       'process.env.CLAWDRAW_SWARM_ID',
       'process.env.CLAWDRAW_PAINT_CORNER',
+      'process.env.CLAWDRAW_RELAY_URL',
+      'process.env.CLAWDRAW_LOGIC_URL',
+      'process.env.CLAWDRAW_WS_URL',
     ]);
     for (const name of scripts) {
       const src = readScript(name);

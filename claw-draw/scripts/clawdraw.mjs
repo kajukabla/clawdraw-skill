@@ -15,6 +15,7 @@
  *   clawdraw propose-pgs --x N --y N --width N --height N --model MODEL  Validate generation area
  *   clawdraw generate --x N --y N --width N --height N --tool extend|insert|modify --prompt "..."
  *                                       Generate image
+ *   clawdraw place-image --file <path>  Place generated image using saved lock coordinates
  *   clawdraw undo [--count N]           Undo last N image placements
  *   clawdraw chat --message "..."       Send a chat message
  *   clawdraw waypoint --name "..." --x N --y N --zoom Z  Drop a waypoint
@@ -23,9 +24,9 @@
  */
 
 // @security-manifest
-// env: CLAWDRAW_API_KEY, CLAWDRAW_DISPLAY_NAME, CLAWDRAW_NO_HISTORY, CLAWDRAW_SWARM_ID, CLAWDRAW_PAINT_CORNER
+// env: CLAWDRAW_API_KEY, CLAWDRAW_DISPLAY_NAME, CLAWDRAW_NO_HISTORY, CLAWDRAW_SWARM_ID, CLAWDRAW_PAINT_CORNER, CLAWDRAW_RELAY_URL, CLAWDRAW_LOGIC_URL, CLAWDRAW_WS_URL
 // endpoints: api.clawdraw.ai (HTTPS), relay.clawdraw.ai (WSS)
-// files: ~/.clawdraw/token.json, ~/.clawdraw/state.json, ~/.clawdraw/apikey.json, ~/.clawdraw/stroke-history.json
+// files: ~/.clawdraw/token.json, ~/.clawdraw/state.json, ~/.clawdraw/apikey.json, ~/.clawdraw/stroke-history.json, ~/.clawdraw/last-lock.json, ~/.clawdraw/last-pgs.json
 // exec: none
 
 import fs from 'node:fs';
@@ -1156,38 +1157,48 @@ async function cmdPlaceImage(args) {
     process.exit(1);
   }
 
-  // Try to load lock state from last generate
+  // Lock state is REQUIRED — must run propose-pgs → generate first
   const lockStatePath = path.join(os.homedir(), '.clawdraw', 'last-lock.json');
-  let lockState = null;
-  let x = Number(args.x);
-  let y = Number(args.y);
-  let width = Number(args.width);
-  let height = Number(args.height);
-  let lockId = args.lockId;
-
-  if (fs.existsSync(lockStatePath) && !lockId) {
-    lockState = JSON.parse(fs.readFileSync(lockStatePath, 'utf-8'));
-    lockId = lockState.lockId;
-    if (isNaN(x)) x = lockState.x;
-    if (isNaN(y)) y = lockState.y;
-    if (isNaN(width)) width = lockState.width;
-    if (isNaN(height)) height = lockState.height;
-    console.log(`Using lock ${lockId} from last generate`);
-  }
-
-  if (isNaN(x) || isNaN(y) || isNaN(width) || isNaN(height)) {
-    console.error('--x, --y, --width, --height are required (or run generate first)');
+  if (!fs.existsSync(lockStatePath)) {
+    console.error('No lock found. Run propose-pgs → generate first.');
+    console.error('Manual coordinate placement (--x --y --width --height) is no longer supported.');
     process.exit(1);
   }
 
-  const token = await getToken(CLAWDRAW_API_KEY);
+  const lockState = JSON.parse(fs.readFileSync(lockStatePath, 'utf-8'));
+  if (!lockState.lockId) {
+    console.error('Lock state is missing lockId. Run propose-pgs → generate again.');
+    process.exit(1);
+  }
+
+  console.log(`Using lock ${lockState.lockId} → (${lockState.x}, ${lockState.y}) ${lockState.width}x${lockState.height}`);
+
+  // Local PNG dimension check (early feedback before server roundtrip)
   const imageBuffer = fs.readFileSync(filePath);
+  if (lockState.resolution) {
+    const [expectedW, expectedH] = lockState.resolution;
+    // PNG IHDR: bytes 16-19 = width, 20-23 = height (big-endian)
+    if (imageBuffer.length >= 24 && imageBuffer[0] === 0x89 && imageBuffer[1] === 0x50) {
+      const pngW = imageBuffer.readUInt32BE(16);
+      const pngH = imageBuffer.readUInt32BE(20);
+      const tolerance = 0.10;
+      if (Math.abs(pngW - expectedW) / expectedW > tolerance ||
+          Math.abs(pngH - expectedH) / expectedH > tolerance) {
+        console.error(`Image dimensions ${pngW}x${pngH} don't match lock resolution ${expectedW}x${expectedH} (±10% tolerance).`);
+        console.error('The server will reject this placement. Generate an image at the correct resolution.');
+        process.exit(1);
+      }
+      console.log(`PNG dimensions ${pngW}x${pngH} match lock resolution ${expectedW}x${expectedH} ✓`);
+    }
+  }
+
+  const token = await getToken(CLAWDRAW_API_KEY);
   const base64 = imageBuffer.toString('base64');
 
-  console.log(`Placing image ${filePath} at (${x}, ${y}) ${width}x${height}...`);
+  console.log(`Placing image ${filePath}...`);
 
-  const payload = { base64, x, y, width, height };
-  if (lockId) payload.lockId = lockId;
+  // Only send lockId — server uses lock coordinates exclusively
+  const payload = { base64, lockId: lockState.lockId };
 
   const resp = await fetch(`${LOGIC_HTTP_URL}/api/agents/images`, {
     method: 'POST',
@@ -1208,10 +1219,8 @@ async function cmdPlaceImage(args) {
   console.log(`Image placed: ${result.image.id}`);
 
   // Clean up lock state
-  if (lockId) {
-    try { fs.unlinkSync(lockStatePath); } catch {}
-    try { fs.unlinkSync(path.join(os.homedir(), '.clawdraw', 'last-pgs.json')); } catch {}
-  }
+  try { fs.unlinkSync(lockStatePath); } catch {}
+  try { fs.unlinkSync(path.join(os.homedir(), '.clawdraw', 'last-pgs.json')); } catch {}
 
   // Save to undo history
   saveImageHistory([result.image.id]);

@@ -1226,6 +1226,15 @@ async function cmdPlaceImage(args) {
 
   const result = await resp.json();
   console.log(`Image placed: ${result.image.id}`);
+  if (result.broadcastOk === true) {
+    console.log('Broadcast to live clients: OK ✓');
+  } else if (result.broadcastOk === false) {
+    console.warn('WARNING: Image saved but broadcast to live clients failed.');
+    console.warn('Image will appear after page refresh or reconnect.');
+  }
+  if (result.lockReleased === false) {
+    console.warn('WARNING: Lock release failed. Lock will expire in ~2 minutes.');
+  }
 
   // Clean up lock state
   try { fs.unlinkSync(lockStatePath); } catch {}

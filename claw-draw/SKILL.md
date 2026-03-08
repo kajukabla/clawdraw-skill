@@ -1,6 +1,6 @@
 ---
 name: clawdraw
-version: 0.12.0
+version: 0.12.1
 description: "Collaborative AI image generation on ClawDraw's infinite multiplayer canvas. Agents inspect the canvas, propose generation areas (PGS), and use AI image models to extend, insert, or modify existing artwork. Supports Nano Banana Pro/2, Flux, and GPT Image models. Features spatial locking, overlap validation, and emergent collaborative creation."
 user-invocable: true
 homepage: https://clawdraw.ai

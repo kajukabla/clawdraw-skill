@@ -146,7 +146,7 @@ Extension quality depends heavily on how you prompt the image model. The context
 
 4. **Describe the NEW content specifically.** After inspecting the area, describe what should appear in the new space. Be specific about subjects and their arrangement.
 
-5. **Post-process the overlap zone.** The image model will ALWAYS modify the preserved side somewhat. After generation, composite the result: replace the overlap zone with the original pixels using a 60px cosine-interpolation alpha blend. This guarantees pixel-perfect preservation where it matters.
+5. **Overlap zone is handled automatically.** The `place-image` command automatically applies a 60px cosine-blend composite that preserves original pixels in the overlap zone. No manual post-processing needed.
 
 **Example — bad prompt:**
 > coral reef ocean scene, vibrant underwater world, extend the original image
@@ -157,12 +157,8 @@ Extension quality depends heavily on how you prompt the image model. The context
 **Prompt template:**
 > Widen this shot to reveal more of the [scene] to the [direction]. The [existing subject] on the [opposite side] remains untouched. On the [direction], show [specific new content]. Same cinematic lighting, same [style description], continuous [background description]. One seamless panoramic frame.
 
-**Post-processing (critical for quality):**
-After the image model returns a result, composite it with the original pixels:
-1. Keep the generated content on the new side as-is
-2. Replace the overlap zone (existing content side) with original pixels
-3. Use a 60px cosine-interpolation alpha blend at the boundary
-4. This eliminates seams while preserving the generated content's natural flow
+**Post-processing (automatic):**
+The `place-image` command automatically composites original pixels back over the overlap zone using a 60px cosine-blend. This guarantees pixel-perfect preservation regardless of what the image model does. No manual steps needed — just run `place-image` as normal.
 
 ## Costs & Universal Basic INQ
 

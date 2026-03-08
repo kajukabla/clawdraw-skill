@@ -35,6 +35,7 @@ import os from 'node:os';
 import { getToken, createAgent, getAgentInfo, writeApiKey, readApiKey } from './auth.mjs';
 import { connect, addWaypoint, getWaypointUrl, deleteWaypoint, setUsername, disconnect } from './connection.mjs';
 import { getTilesForBounds, fetchTiles, compositeAndCrop } from './snapshot.mjs';
+import { cosineBlendComposite } from './blend.mjs';
 
 const RELAY_HTTP_URL = process.env.CLAWDRAW_RELAY_URL || 'https://relay.clawdraw.ai';
 const LOGIC_HTTP_URL = process.env.CLAWDRAW_LOGIC_URL || 'https://api.clawdraw.ai';
@@ -1104,7 +1105,7 @@ async function cmdGenerate(args) {
   let injectedPrompt;
   switch (tool) {
     case 'extend':
-      injectedPrompt = `Widen this shot to reveal more of the scene. ${prompt}. The existing content remains untouched. Same cinematic lighting, same art style, continuous background. One seamless panoramic frame.`;
+      injectedPrompt = `IMPORTANT: Do NOT change the original image. Only paint onto the black/transparent space. The existing artwork must stay exactly as it is — same colors, same shapes, same details, pixel for pixel. Only fill in the empty black area. Now, extend the scene into that empty space: ${prompt}. Match the exact art style, color palette, lighting direction, and level of detail of the original. Continue lines, textures, gradients, and background elements naturally from the original into the new area. Same perspective, same vanishing points, same horizon. REMINDER: Do NOT modify the original image in any way. Only the black/transparent area should have new content. The original artwork must remain completely untouched.`;
       break;
     case 'insert':
       injectedPrompt = `Insert into this image: ${prompt}. Blend naturally with the existing scene — match the art style, lighting, and color palette so the insertion looks like it was always part of the image.`;
@@ -1121,7 +1122,7 @@ async function cmdGenerate(args) {
   fs.writeFileSync(promptPath, injectedPrompt, 'utf-8');
 
   // 5. Save lock state for place-image
-  const lockState = { lockId, x, y, width, height, model, resolution };
+  const lockState = { lockId, x, y, width, height, model, resolution, screenshotPath, tool };
   const lockStatePath = path.join(os.homedir(), '.clawdraw', 'last-lock.json');
   fs.writeFileSync(lockStatePath, JSON.stringify(lockState, null, 2));
 
@@ -1174,7 +1175,7 @@ async function cmdPlaceImage(args) {
   console.log(`Using lock ${lockState.lockId} → (${lockState.x}, ${lockState.y}) ${lockState.width}x${lockState.height}`);
 
   // Local PNG dimension check (early feedback before server roundtrip)
-  const imageBuffer = fs.readFileSync(filePath);
+  let imageBuffer = fs.readFileSync(filePath);
   if (lockState.resolution) {
     const [expectedW, expectedH] = lockState.resolution;
     // PNG IHDR: bytes 16-19 = width, 20-23 = height (big-endian)
@@ -1190,6 +1191,14 @@ async function cmdPlaceImage(args) {
       }
       console.log(`PNG dimensions ${pngW}x${pngH} match lock resolution ${expectedW}x${expectedH} ✓`);
     }
+  }
+
+  // Cosine-blend: paste original pixels back over the overlap zone for extends
+  if (lockState.tool === 'extend' && lockState.screenshotPath && fs.existsSync(lockState.screenshotPath)) {
+    console.log('Applying cosine-blend composite (preserving original pixels in overlap zone)...');
+    const originalScreenshot = fs.readFileSync(lockState.screenshotPath);
+    imageBuffer = await cosineBlendComposite(originalScreenshot, imageBuffer, { blendWidth: 60 });
+    console.log('Cosine-blend complete — original content preserved.');
   }
 
   const token = await getToken(CLAWDRAW_API_KEY);

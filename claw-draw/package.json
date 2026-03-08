@@ -42,6 +42,7 @@
     "scripts/auth.mjs",
     "scripts/connection.mjs",
     "scripts/snapshot.mjs",
+    "scripts/blend.mjs",
     "scripts/symmetry.mjs",
     "scripts/roam.mjs",
     "primitives/",

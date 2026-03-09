@@ -41,11 +41,19 @@ export async function cosineBlendComposite(originalPng, generatedPng, opts = {})
   // Decode generated image
   const genRaw = await sharp(generatedPng).ensureAlpha().raw().toBuffer();
 
-  // Build binary content mask from original alpha channel
-  // 1 = has content (alpha > 10), 0 = empty
+  // Build binary content mask from original pixels.
+  // Content = alpha > 10 AND not near-black (canvas background is opaque black).
+  // PGS screenshots render empty canvas as rgb(0,0,0) with alpha=255,
+  // so alpha alone is insufficient — we also check brightness.
+  const BRIGHTNESS_THRESHOLD = 6; // sum of R+G+B below this = "empty black"
   const mask = new Float32Array(genW * genH);
   for (let i = 0; i < genW * genH; i++) {
-    mask[i] = origRaw[i * 4 + 3] > 10 ? 1.0 : 0.0;
+    const off = i * 4;
+    const a = origRaw[off + 3];
+    const brightness = origRaw[off] + origRaw[off + 1] + origRaw[off + 2];
+    // Pixel has content if: transparent (alpha-based empty) = NO,
+    // AND it's not just the opaque black canvas background
+    mask[i] = (a > 10 && brightness > BRIGHTNESS_THRESHOLD) ? 1.0 : 0.0;
   }
 
   // Compute distance field: for each pixel, approximate distance to nearest

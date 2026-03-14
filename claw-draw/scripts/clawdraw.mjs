@@ -34,8 +34,8 @@ import path from 'node:path';
 import os from 'node:os';
 import { getToken, createAgent, getAgentInfo, writeApiKey, readApiKey } from './auth.mjs';
 import { connect, addWaypoint, getWaypointUrl, deleteWaypoint, setUsername, disconnect } from './connection.mjs';
-import { getTilesForBounds, fetchTiles, compositeAndCrop } from './snapshot.mjs';
-import { cosineBlendComposite } from './blend.mjs';
+import { getTilesForBounds, fetchTiles, compositeAndCrop, captureFromImages } from './snapshot.mjs';
+
 
 const RELAY_HTTP_URL = process.env.CLAWDRAW_RELAY_URL || 'https://relay.clawdraw.ai';
 const LOGIC_HTTP_URL = process.env.CLAWDRAW_LOGIC_URL || 'https://api.clawdraw.ai';
@@ -619,7 +619,7 @@ async function cmdInspectArea(args) {
   const tileBuffers = await fetchTiles(TILE_CDN_URL, grid.tiles);
 
   // Composite and crop to PNG
-  const pngBuf = compositeAndCrop(tileBuffers, grid, bbox);
+  const pngBuf = await compositeAndCrop(tileBuffers, grid, bbox);
 
   // Save to temp file
   const imagePath = path.join(os.tmpdir(), `clawdraw-inspect-${Date.now()}.png`);
@@ -1068,15 +1068,9 @@ async function cmdGenerate(args) {
     process.exit(1);
   }
 
-  // 1. Capture context screenshot (tile resolution — model uses this as context, not pixel-matched)
   const [resW, resH] = resolution || [1024, 1024];
-  console.log(`Capturing area (${x}, ${y}) ${width}x${height} canvas units...`);
-  const bbox = { minX: x, minY: y, maxX: x + width, maxY: y + height };
-  const grid = getTilesForBounds(bbox);
-  const tileBuffers = await fetchTiles(TILE_CDN_URL, grid.tiles);
-  const pngBuf = compositeAndCrop(tileBuffers, grid, bbox);
 
-  // 2. Acquire lock with model + resolution
+  // Acquire lock first
   console.log('Acquiring PGS lock...');
   let lockId;
   try {
@@ -1101,12 +1095,168 @@ async function cmdGenerate(args) {
     process.exit(1);
   }
 
-  // 3. Build injected prompt
+  // --- EXTEND tool: Fill Pro outpainting ---
+  // Capture the overlap between existing content and PGS area, place on black canvas,
+  // mask the empty space, single Fill Pro call. Use square PGS to avoid landscape
+  // duplication bug at 50% mask.
+  if (tool === 'extend') {
+    const sharp = (await import('sharp')).default;
+    const bflKey = process.env.BFL_API_KEY;
+    if (!bflKey) { console.error('BFL_API_KEY not set. Required for extend tool.'); process.exit(1); }
+
+    console.log(`Extending area (${x}, ${y}) ${width}x${height} at ${resW}x${resH}px...`);
+
+    // 1. Find images overlapping the PGS area, pick best overlap
+    let contentImages = [];
+    try {
+      const resp = await fetch(`${RELAY_HTTP_URL}/api/pgs/area-images`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ x, y, width, height }),
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        contentImages = data.images || [];
+      }
+    } catch { /* no images */ }
+
+    if (contentImages.length === 0) {
+      console.error('No existing content found in PGS area. Use insert tool for empty areas.');
+      process.exit(1);
+    }
+
+    // Sort by overlap area (descending), tie-break by recency
+    const pgsR = x + width, pgsB = y + height;
+    contentImages.sort((a, b) => {
+      const oA = Math.max(0, Math.min(pgsR, a.x + a.width) - Math.max(x, a.x)) *
+                 Math.max(0, Math.min(pgsB, a.y + a.height) - Math.max(y, a.y));
+      const oB = Math.max(0, Math.min(pgsR, b.x + b.width) - Math.max(x, b.x)) *
+                 Math.max(0, Math.min(pgsB, b.y + b.height) - Math.max(y, b.y));
+      return oB - oA || b.createdAt - a.createdAt;
+    });
+    const src = contentImages[0];
+    console.log(`  Source: ${src.id} at (${src.x},${src.y}) ${src.width}x${src.height}`);
+
+    // 2. Capture only the overlap between source and PGS area
+    const overlapBbox = {
+      minX: Math.max(src.x, x),
+      minY: Math.max(src.y, y),
+      maxX: Math.min(src.x + src.width, x + width),
+      maxY: Math.min(src.y + src.height, y + height),
+    };
+    const overlapW = overlapBbox.maxX - overlapBbox.minX;
+    const overlapH = overlapBbox.maxY - overlapBbox.minY;
+    console.log(`  Overlap: (${overlapBbox.minX},${overlapBbox.minY}) ${overlapW}x${overlapH}`);
+
+    const contentBuf = await captureFromImages(RELAY_HTTP_URL, token, overlapBbox, [overlapW, overlapH]);
+    if (!contentBuf) {
+      console.error('Failed to capture content image');
+      process.exit(1);
+    }
+
+    // 3. Place content on PGS-resolution canvas, mask the empty space, call Fill Pro
+    // Scale factors: canvas units → PGS pixels
+    const sx = resW / width, sy = resH / height;
+    const cLeft = Math.round((overlapBbox.minX - x) * sx);
+    const cTop = Math.round((overlapBbox.minY - y) * sy);
+    const cW = Math.round(overlapW * sx);
+    const cH = Math.round(overlapH * sy);
+
+    const fillPct = Math.round(100 * (1 - (cW * cH) / (resW * resH)));
+    console.log(`  Content in output: (${cLeft},${cTop}) ${cW}x${cH} of ${resW}x${resH} (${fillPct}% fill)`);
+
+    // Resize content to its footprint in PGS resolution
+    const resizedContent = await sharp(contentBuf).resize(cW, cH, { fit: 'fill' }).png().toBuffer();
+
+    // Place on black canvas at PGS resolution
+    const canvas = await sharp({
+      create: { width: resW, height: resH, channels: 3, background: { r: 0, g: 0, b: 0 } },
+    }).composite([{ input: resizedContent, left: cLeft, top: cTop }])
+      .removeAlpha().png().toBuffer();
+
+    // Build mask: white = empty (fill), black = content (preserve)
+    const maskBuf = Buffer.alloc(resW * resH);
+    for (let row = 0; row < resH; row++) {
+      for (let col = 0; col < resW; col++) {
+        const inContent = col >= cLeft && col < cLeft + cW && row >= cTop && row < cTop + cH;
+        maskBuf[row * resW + col] = inContent ? 0 : 255;
+      }
+    }
+    const mask = await sharp(maskBuf, { raw: { width: resW, height: resH, channels: 1 } }).png().toBuffer();
+
+    const fillPrompt = `${prompt}. Same art style, same lighting, same color palette. No text, no words, no letters, no watermarks, no logos.`;
+
+    console.log(`  Calling Fill Pro (${resW}x${resH}, ${(resW * resH / 1e6).toFixed(2)}MP)...`);
+
+    const fillBody = {
+      prompt: fillPrompt,
+      image: canvas.toString('base64'),
+      mask: mask.toString('base64'),
+      steps: 50, guidance: 30, output_format: 'png',
+    };
+    const fillResp = await fetch('https://api.bfl.ai/v1/flux-pro-1.0-fill', {
+      method: 'POST',
+      headers: { 'x-key': bflKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify(fillBody),
+    });
+    if (!fillResp.ok) throw new Error(`Fill Pro ${fillResp.status}: ${(await fillResp.text()).slice(0, 200)}`);
+    const fillData = await fillResp.json();
+    const pollingUrl = fillData.polling_url || `https://api.bfl.ai/v1/get_result?id=${fillData.id}`;
+
+    // Poll for result
+    const t0 = Date.now();
+    let finalBuf;
+    while (Date.now() - t0 < 180000) {
+      await new Promise(r => setTimeout(r, 2000));
+      const pr = await fetch(pollingUrl, { headers: { 'x-key': bflKey } });
+      const pd = await pr.json();
+      if (pd.status === 'Ready') {
+        const imgResp = await fetch(pd.result.sample);
+        finalBuf = Buffer.from(await imgResp.arrayBuffer());
+        break;
+      }
+      if (pd.status === 'Error' || pd.status === 'Failed') throw new Error('Fill Pro failed: ' + JSON.stringify(pd));
+      process.stdout.write('.');
+    }
+    if (!finalBuf) throw new Error('Fill Pro timed out');
+    console.log('');
+
+    // Resize if Fill Pro returned different dimensions
+    const rMeta = await sharp(finalBuf).metadata();
+    if (rMeta.width !== resW || rMeta.height !== resH) {
+      console.log(`  Fill Pro returned ${rMeta.width}x${rMeta.height}, resizing to ${resW}x${resH}`);
+      finalBuf = await sharp(finalBuf).resize(resW, resH, { fit: 'fill' }).png().toBuffer();
+    }
+
+    // 4. Save for place-image
+    const resultPath = path.join(os.tmpdir(), `clawdraw-extend-result-${Date.now()}.png`);
+    fs.writeFileSync(resultPath, finalBuf);
+
+    const lockState = { lockId, x, y, width, height, model, resolution, tool };
+    fs.writeFileSync(path.join(os.homedir(), '.clawdraw', 'last-lock.json'), JSON.stringify(lockState, null, 2));
+
+    console.log(`  Result saved: ${resultPath} (${resW}x${resH}px)`);
+    console.log('');
+    console.log('Run: clawdraw place-image --file ' + resultPath);
+    return;
+  }
+
+  // --- INSERT / MODIFY tools: capture screenshot + build prompt for external model ---
+  console.log(`Capturing area (${x}, ${y}) ${width}x${height} canvas units at ${resW}x${resH}px...`);
+  const bbox = { minX: x, minY: y, maxX: x + width, maxY: y + height };
+
+  let pngBuf = await captureFromImages(RELAY_HTTP_URL, token, bbox, [resW, resH]);
+  if (pngBuf) {
+    console.log(`  Screenshot from source images (${resW}x${resH}px)`);
+  } else {
+    console.log('  No images found, falling back to tile-based capture...');
+    const grid = getTilesForBounds(bbox);
+    const tileBuffers = await fetchTiles(TILE_CDN_URL, grid.tiles);
+    pngBuf = await compositeAndCrop(tileBuffers, grid, bbox, [resW, resH]);
+  }
+
   let injectedPrompt;
   switch (tool) {
-    case 'extend':
-      injectedPrompt = `IMPORTANT: Do NOT change the original image. Only paint onto the black/transparent space. The existing artwork must stay exactly as it is — same colors, same shapes, same details, pixel for pixel. Only fill in the empty black area. Now, extend the scene into that empty space: ${prompt}. Match the exact art style, color palette, lighting direction, and level of detail of the original. Continue lines, textures, gradients, and background elements naturally from the original into the new area. Same perspective, same vanishing points, same horizon. REMINDER: Do NOT modify the original image in any way. Only the black/transparent area should have new content. The original artwork must remain completely untouched.`;
-      break;
     case 'insert':
       injectedPrompt = `Insert into this image: ${prompt}. Blend naturally with the existing scene — match the art style, lighting, and color palette so the insertion looks like it was always part of the image.`;
       break;
@@ -1115,13 +1265,11 @@ async function cmdGenerate(args) {
       break;
   }
 
-  // 4. Save screenshot and prompt to temp files
   const screenshotPath = path.join(os.tmpdir(), `clawdraw-pgs-screenshot-${Date.now()}.png`);
   const promptPath = path.join(os.tmpdir(), `clawdraw-pgs-prompt-${Date.now()}.txt`);
   fs.writeFileSync(screenshotPath, pngBuf);
   fs.writeFileSync(promptPath, injectedPrompt, 'utf-8');
 
-  // 5. Save lock state for place-image
   const lockState = { lockId, x, y, width, height, model, resolution, screenshotPath, tool };
   const lockStatePath = path.join(os.homedir(), '.clawdraw', 'last-lock.json');
   fs.writeFileSync(lockStatePath, JSON.stringify(lockState, null, 2));
@@ -1141,8 +1289,6 @@ async function cmdGenerate(args) {
   console.log(`Output must be ${resW}x${resH} pixels.`);
   console.log('Then run: clawdraw place-image --file <result.png>');
   console.log('(Lock and placement coordinates are saved automatically.)');
-
-  // NOTE: Lock is NOT released here — place-image will release it
 }
 
 // ---------------------------------------------------------------------------
@@ -1191,14 +1337,6 @@ async function cmdPlaceImage(args) {
       }
       console.log(`PNG dimensions ${pngW}x${pngH} match lock resolution ${expectedW}x${expectedH} ✓`);
     }
-  }
-
-  // Cosine-blend: paste original pixels back over the overlap zone for extends
-  if (lockState.tool === 'extend' && lockState.screenshotPath && fs.existsSync(lockState.screenshotPath)) {
-    console.log('Applying cosine-blend composite (preserving original pixels in overlap zone)...');
-    const originalScreenshot = fs.readFileSync(lockState.screenshotPath);
-    imageBuffer = await cosineBlendComposite(originalScreenshot, imageBuffer, { blendWidth: 60 });
-    console.log('Cosine-blend complete — original content preserved.');
   }
 
   const token = await getToken(CLAWDRAW_API_KEY);
